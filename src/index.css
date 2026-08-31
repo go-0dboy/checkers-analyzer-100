@@ -1,0 +1,187 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Unbounded", "Golos Text", sans-serif;
+  --font-sans: "Golos Text", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "Consolas", monospace;
+}
+
+/* ---------- фон и база ---------- */
+html, body { margin: 0; }
+
+body {
+  background-color: #0b1416;
+  color: #d5e0dc;
+  font-family: var(--font-sans);
+  background-image:
+    radial-gradient(900px 480px at 88% -8%, rgba(230, 165, 60, 0.075), transparent 62%),
+    radial-gradient(820px 620px at -12% 108%, rgba(44, 90, 94, 0.3), transparent 60%),
+    repeating-conic-gradient(rgba(255, 255, 255, 0.014) 0% 25%, transparent 0% 50%);
+  background-size: auto, auto, 54px 54px;
+  background-attachment: fixed;
+}
+
+::selection { background: rgba(230, 165, 60, 0.35); color: #fff; }
+
+/* ---------- поверхности ---------- */
+.panel {
+  background: linear-gradient(180deg, rgba(20, 34, 38, 0.94), rgba(13, 24, 27, 0.94));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+}
+
+.chip {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.4;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #8fa3a0;
+  white-space: nowrap;
+}
+.chip-amber {
+  color: #f0bc62;
+  border-color: rgba(230, 165, 60, 0.45);
+  background: rgba(230, 165, 60, 0.1);
+}
+
+/* ---------- доска ---------- */
+.board-frame {
+  box-shadow:
+    0 22px 60px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255, 255, 255, 0.09),
+    0 0 0 7px #0e1a1d,
+    0 0 0 8px rgba(255, 255, 255, 0.06);
+}
+
+.sq-dark {
+  background: linear-gradient(145deg, #20424a, #17343c);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
+}
+.sq-light {
+  background: linear-gradient(145deg, #dee5df, #ccd6cf);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.07);
+}
+
+/* ---------- шашки ---------- */
+.piece-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 10%;
+  height: 10%;
+  z-index: 20;
+  cursor: pointer;
+  transition: transform 0.38s cubic-bezier(0.22, 0.9, 0.26, 1);
+  will-change: transform;
+}
+.piece-disc {
+  position: absolute;
+  inset: 7.5%;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: filter 0.15s ease, box-shadow 0.15s ease;
+}
+.piece-white {
+  background: radial-gradient(circle at 35% 30%, #fdf6e3, #eadbb4 52%, #c4ab7c 100%);
+  box-shadow:
+    0 3px 8px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.65),
+    inset 0 0 0 7px rgba(120, 90, 40, 0.16),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.18);
+}
+.piece-black {
+  background: radial-gradient(circle at 35% 30%, #4b5158, #24282e 55%, #0e1013 100%);
+  box-shadow:
+    0 3px 8px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.14),
+    inset 0 0 0 7px rgba(255, 255, 255, 0.05),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.5);
+}
+.piece-movable:hover { filter: brightness(1.15); }
+.piece-disc.piece-selected {
+  box-shadow:
+    0 0 0 2.5px rgba(230, 165, 60, 0.95),
+    0 0 18px rgba(230, 165, 60, 0.55),
+    0 3px 8px rgba(0, 0, 0, 0.5);
+}
+.piece-pop { animation: piece-pop 0.36s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+@keyframes piece-pop {
+  from { scale: 0.35; opacity: 0; }
+  to { scale: 1; opacity: 1; }
+}
+
+/* ---------- стрелки ---------- */
+.arrow-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: arrow-draw 0.55s ease-out 0.05s forwards;
+}
+@keyframes arrow-draw { to { stroke-dashoffset: 0; } }
+
+.arrow-draw-cap {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: cap-in 0.3s ease-out 0.3s both;
+}
+@keyframes cap-in {
+  from { opacity: 0; scale: 0.3; }
+  to { opacity: 1; scale: 1; }
+}
+
+.dest-pulse { animation: dest-pulse 1.15s ease-in-out infinite; }
+@keyframes dest-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+/* ---------- шкала оценки ---------- */
+.eval-seg-top {
+  background: linear-gradient(180deg, #eef3ee, #c3cdc6);
+  transition: height 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.eval-seg-bottom {
+  background: linear-gradient(180deg, #232b30, #101418);
+}
+
+/* ---------- мелкая механика ---------- */
+.spinner {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(230, 165, 60, 0.22);
+  border-top-color: #e6a53c;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.score-thinking { animation: score-pulse 1.2s ease-in-out infinite; }
+@keyframes score-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.toast-in { animation: toast-in 0.28s cubic-bezier(0.34, 1.4, 0.64, 1) both; }
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, 14px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* ---------- скроллбар ---------- */
+.scroll-slim::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll-slim::-webkit-scrollbar-track { background: transparent; }
+.scroll-slim::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.scroll-slim::-webkit-scrollbar-thumb:hover { background-color: rgba(255, 255, 255, 0.22); }
+.scroll-slim { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.15) transparent; }
