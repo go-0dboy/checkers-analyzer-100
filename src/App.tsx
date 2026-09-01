@@ -106,7 +106,7 @@ export default function App() {
   return (
     <div className="min-h-dvh">
       {/* ======= шапка ======= */}
-      <header className="border-b border-white/[.07] bg-pan/80 backdrop-blur-sm">
+      <header className="relative z-50 border-b border-white/[.07] bg-pan/80 backdrop-blur-sm">
         <div className="mx-auto flex max-w-[1220px] items-center gap-3 px-4 py-3 sm:gap-4">
           <LogoMark />
           <div className="min-w-0">
