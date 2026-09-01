@@ -1,0 +1,22 @@
+# Единые окончания строк — критично для gradlew и shell-скриптов
+* text=auto eol=lf
+
+# Gradle wrapper и скрипты Android
+gradlew text eol=lf
+*.bat text eol=crlf
+*.gradle text eol=lf
+*.properties text eol=lf
+
+# Бинарники
+*.jar binary
+*.apk binary
+*.aab binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.keystore binary
+*.jks binary

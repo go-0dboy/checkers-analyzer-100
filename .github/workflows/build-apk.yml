@@ -1,0 +1,108 @@
+# ============================================================
+# Нативная сборка Android-APK из git.
+#
+# Триггеры:
+#   - пуш в main/master  → debug-APK (артефакт прогона)
+#   - тег v*             → debug + release (подпись из секретов)
+#                          и прикрепление к GitHub Release
+#   - workflow_dispatch  → ручной запуск
+#
+# Требование: Node >= 22 (зафиксировано в setup-node и .nvmrc).
+# ============================================================
+
+name: Android APK
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    name: Сборка APK · Node 22
+    runs-on: ubuntu-latest
+    env:
+      KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+    steps:
+      - name: Чекаут репозитория
+        uses: actions/checkout@v4
+
+      - name: Node.js 22 (обязательное требование)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      - name: Проверка типов
+        run: npm run typecheck
+
+      - name: Веб-сборка (dist/)
+        run: npm run build
+
+      # Папку android/ можно коммитить, а можно генерировать в CI —
+      # workflow корректно работает в обоих случаях.
+      - name: Capacitor · платформа Android
+        run: |
+          if [ ! -d android ]; then
+            echo "::notice::android/ отсутствует — создаю шаблон (npx cap add android)"
+            npx cap add android
+          fi
+          npx cap sync android
+
+      - name: JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Кэш Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Сборка debug-APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+
+      # Release собирается и подписывается, только если заданы секреты.
+      - name: Сборка release-APK (подпись из секретов)
+        if: env.KEYSTORE_BASE64 != ''
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/ci-release.keystore
+          cd android
+          KEYSTORE_FILE="$PWD/app/ci-release.keystore" \
+            ./gradlew --no-daemon \
+              -I ../.github/ci/signing.init.gradle \
+              assembleRelease
+
+      - name: Публикация артефактов
+        uses: actions/upload-artifact@v4
+        with:
+          name: stokeletka-apk-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/apk/release/app-release.apk
+
+      # Для тегов v* APK попадают прямо в GitHub Release.
+      - name: Прикрепить APK к GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/apk/release/app-release.apk

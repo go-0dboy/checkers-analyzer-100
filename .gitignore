@@ -1,5 +1,41 @@
+# --- зависимости ---
 node_modules/
-.next/
+
+# --- веб-сборка (воспроизводится из git) ---
 dist/
-build/
+
+# --- Android / Capacitor (исходники android/ коммитим, артефакты — нет) ---
+android/.gradle/
+android/build/
+android/app/build/
+android/captures/
+android/local.properties
+*.apk.idsig
+
+# --- ключи подписи: НИКОГДА не коммитить ---
+*.jks
+*.keystore
+!android/app/src/main/res/**
+keystore.properties
+
+# --- окружения и секреты ---
+.env
+.env.*
+!.env.example
+
+# --- ОС и редакторы ---
+.DS_Store
+Thumbs.db
+.idea/
+*.iml
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# --- логи ---
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.next/
+build/
