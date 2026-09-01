@@ -72,7 +72,7 @@ jobs:
           java-version: '21'
 
       # Дистрибутив -bin достаточно для CI и качается быстрее, чем -all (~150 МБ).
-      - name: Оптимизация: Gradle-дистрибутив -bin
+      - name: "Оптимизация: Gradle-дистрибутив -bin"
         run: |
           sed -i 's/-all\.zip/-bin.zip/' android/gradle/wrapper/gradle-wrapper.properties || true
 
