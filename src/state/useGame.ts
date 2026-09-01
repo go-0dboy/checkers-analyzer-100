@@ -35,9 +35,12 @@ const IDLE: EngineState = {
   best: null, candidates: [], pv: [], mate: false, book: null,
 };
 
-/* v2: старые сохранения (сделанные до исправления нумерации полей)
-   несовместимы — при загрузке игнорируются, партия начинается заново. */
-const STORE_KEY = 'sk100.game.v2';
+/* v3:
+   - v1/v2 — сохранения, сделанные до исправлений доски; игнорируются;
+   - при загрузке позиция проверяется: если в ней нет легальных ходов
+     (завершённая или повреждённая партия), сохранение отбрасывается —
+     приложение всегда стартует с начальной расстановки. */
+const STORE_KEY = 'sk100.game.v3';
 
 export interface GameOptions {
   engineDepth: number;
@@ -49,6 +52,14 @@ export interface GameOptions {
 
 export function useGame(opts: GameOptions) {
   const [state, setState] = useState(() => {
+    const fresh = {
+      start: { b: startBoard(), side: WHITE } as Pos,
+      moves: [] as Move[],
+      ply: 0,
+      flipped: false,
+      showNums: true,
+      headers: {} as Record<string, string>,
+    };
     try {
       const raw = localStorage.getItem(STORE_KEY);
       if (raw) {
@@ -58,24 +69,26 @@ export function useGame(opts: GameOptions) {
         if (Array.isArray(d.pdn)) {
           moves = parsePDN(d.pdn.join('\n')).moves;
         }
+        const ply = Math.min(d.ply ?? moves.length, moves.length);
+        /* защита от «встречи с победителем»: если в восстановленной позиции
+           нет легальных ходов (партия завершена или сохранение повреждено),
+           стартуем с чистой начальной расстановки */
+        const cur = positionsFrom(start, moves, ply)[ply] ?? start;
+        if (generateMoves(cur).length === 0) {
+          localStorage.removeItem(STORE_KEY);
+          return fresh;
+        }
         return {
           start,
           moves,
-          ply: Math.min(d.ply ?? moves.length, moves.length),
+          ply,
           flipped: !!d.flipped,
           showNums: d.showNums !== false,
           headers: (d.headers ?? {}) as Record<string, string>,
         };
       }
     } catch { /* повреждённое хранилище — начинаем заново */ }
-    return {
-      start: { b: startBoard(), side: WHITE } as Pos,
-      moves: [] as Move[],
-      ply: 0,
-      flipped: false,
-      showNums: true,
-      headers: {} as Record<string, string>,
-    };
+    return fresh;
   });
 
   const { start, moves, ply, flipped, showNums, headers } = state;
