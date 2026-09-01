@@ -1,23 +1,21 @@
 /* ============================================================
  * СтоКлетка — мобильный анализатор международных шашек
- * (100 клеток, правила ФМЖД). Mobile-first: доска, движок,
- * база фигур, навигация по партии, FEN/PDN, темы оформления.
+ * (100 клеток, ФМЖД). Движок работает в отдельном потоке.
  * ============================================================ */
 
 import {
   useEffect, useMemo, useRef, useState,
   type ReactNode, type SVGProps,
 } from 'react';
-import { useGame } from './state/useGame';
+import { useGame, type EngineState } from './state/useGame';
 import {
   type Move, type Pos, type Side, WHITE, rc, sq, moveNotation, tempi,
 } from './engine/core';
-import { type EngineState } from './state/useGame';
 import { type TbVerdict } from './engine/tablebase';
 import { toPDN, SAMPLE_PDN } from './engine/pdn';
 import { THEMES, applyTheme, initialTheme, type ThemeId } from './themes';
 
-/* ================= иконки (inline SVG) ================= */
+/* ================= иконки ================= */
 
 type IP = SVGProps<SVGSVGElement> & { size?: number };
 const base = (p: IP) => ({
@@ -41,8 +39,9 @@ const IBook = (p: IP) => <svg {...base(p)}><path d="M4 19.5A2.5 2.5 0 016.5 17H2
 const ICheck = (p: IP) => <svg {...base(p)}><path d="M4 12.5l5 5L20 6.5" /></svg>;
 const IWarn = (p: IP) => <svg {...base(p)}><path d="M12 3l10 18H2z" /><path d="M12 10v4M12 17.5v.5" /></svg>;
 const IPalette = (p: IP) => <svg {...base(p)}><circle cx="12" cy="12" r="9" /><circle cx="8" cy="9" r="1.4" fill="currentColor" stroke="none" /><circle cx="12" cy="7" r="1.4" fill="currentColor" stroke="none" /><circle cx="16" cy="9" r="1.4" fill="currentColor" stroke="none" /><path d="M12 21c1.8 0 2.5-1.2 1.6-2.4-.7-1-.2-2.6 1.4-2.6H17a4 4 0 004-4" /></svg>;
+const ICpu = (p: IP) => <svg {...base(p)}><rect x="6" y="6" width="12" height="12" rx="1.5" /><rect x="10" y="10" width="4" height="4" /><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" /></svg>;
 
-/* ================= мелкие блоки UI ================= */
+/* ================= мелкие блоки ================= */
 
 function TBtn({
   children, onClick, title, disabled, active, accent, className = '',
@@ -61,7 +60,7 @@ function TBtn({
           : accent
             ? 'border-acc/50 bg-acc/10 text-acc2 hover:bg-acc/20'
             : 'border-white/10 bg-white/[.04] text-body hover:bg-white/[.09]',
-        disabled ? 'cursor-not-allowed opacity-30' : 'active:scale-[.93]',
+        disabled ? 'cursor-not-allowed opacity-30' : 'active:scale-[.92]',
         className,
       ].join(' ')}
     >
@@ -77,6 +76,10 @@ function Dot({ color, pulse }: { color: string; pulse?: boolean }) {
       <span className="relative h-2 w-2 rounded-full" style={{ background: color }} />
     </span>
   );
+}
+
+function Chip({ children, amber }: { children: ReactNode; amber?: boolean }) {
+  return <span className={`chip ${amber ? 'chip-amber' : ''}`}>{children}</span>;
 }
 
 /* ================= выбор темы ================= */
@@ -152,12 +155,13 @@ function Crown() {
 }
 
 interface PieceInfo { n: number; color: Side; king: boolean; id: number; fresh: boolean }
+interface Pair { from: number; to: number }
 
 function BoardView({
   pos, legal, selected, lastMove, best, preview, flipped, showNums, winner, movableFroms, onSquare,
 }: {
   pos: Pos; legal: Move[]; selected: number | null; lastMove: Move | null;
-  best: Move | null; preview: Move | null; flipped: boolean; showNums: boolean;
+  best: Pair | null; preview: Pair | null; flipped: boolean; showNums: boolean;
   winner: Side | null; movableFroms: Set<number>; onSquare: (n: number) => void;
 }) {
   const prevInfo = useRef<Map<number, { id: number; color: Side }>>(new Map());
@@ -207,7 +211,11 @@ function BoardView({
     return s;
   }, [selMoves]);
 
-  const arrowMove = preview ?? best;
+  const arrowPair = preview ?? best;
+  const arrowMove = useMemo(
+    () => (arrowPair ? legal.find((m) => m.from === arrowPair.from && m.to === arrowPair.to) ?? null : null),
+    [arrowPair, legal],
+  );
   const arrow = useMemo(() => {
     if (!arrowMove) return null;
     const pts: [number, number][] = [];
@@ -233,156 +241,157 @@ function BoardView({
     };
   }, [arrowMove, flipped]);
 
-  const ranks = Array.from({ length: 10 }, (_, i) => (flipped ? i + 1 : 10 - i));
-  const files = Array.from({ length: 10 }, (_, i) => FILES[flipped ? 9 - i : i]);
-
   return (
-    <div className="flex items-stretch gap-2 sm:gap-2.5">
-      <EvalBar pos={pos} />
-      <div className="relative min-w-0 flex-1">
-        <div className="absolute -left-5 top-0 flex h-full flex-col sm:-left-6">
-          {ranks.map((r) => (
-            <div key={`r${r}`} className="flex flex-1 items-center font-mono text-[10px] text-dim sm:text-xs">{r}</div>
-          ))}
-        </div>
-        <div className="absolute -bottom-5 left-0 flex w-full flex-row sm:-bottom-6">
-          {files.map((f) => (
-            <div key={`f${f}`} className="flex flex-1 items-center justify-center font-mono text-[10px] text-dim sm:text-xs">{f}</div>
-          ))}
-        </div>
+    <div className="board-frame relative aspect-square w-full overflow-hidden rounded-xl">
+      {/* поля + координаты внутри доски */}
+      <div className="absolute inset-0 grid grid-cols-10 grid-rows-10">
+        {Array.from({ length: 100 }, (_, i) => {
+          const r = (i / 10) | 0; const c = i % 10;
+          const n = sq(r, c);
+          const dark = (r + c) % 2 === 1;
+          const rr = flipped ? 9 - r : r;
+          const cc = flipped ? 9 - c : c;
+          const isLast = lastMove !== null && (lastMove.from === n || lastMove.to === n);
+          const isSel = selected === n;
+          return (
+            <button key={n} type="button" onClick={() => onSquare(n)} className={`relative block h-full w-full ${dark ? 'sq-dark' : 'sq-light'}`}>
+              {dark && showNums && (
+                <span className="sq-num">{n}</span>
+              )}
+              {dark && showNums && cc === 0 && (
+                <span className="sq-coord">{flipped ? rr + 1 : 10 - rr}</span>
+              )}
+              {dark && showNums && rr === 9 && (
+                <span className="sq-coord sq-coord-file">{FILES[cc]}</span>
+              )}
+              {isLast && <span className="pointer-events-none absolute inset-0 bg-acc/20" />}
+              {isSel && <span className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-acc" />}
+              {destQuiet.has(n) && (
+                <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <span className="h-[30%] w-[30%] rounded-full border border-acc/70 bg-acc/35 shadow-[0_0_10px_color-mix(in_oklab,var(--accent)_50%,transparent)]" />
+                </span>
+              )}
+              {destCaps.has(n) && <span className="dest-pulse pointer-events-none absolute inset-0 ring-[3px] ring-inset ring-[#d9534a]/90" />}
+              {victims.has(n) && (
+                <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <span className="relative h-[46%] w-[46%]">
+                    <span className="absolute left-1/2 top-1/2 h-[14%] w-full -translate-x-1/2 -translate-y-1/2 rotate-45 rounded bg-[#d9534a]/90" />
+                    <span className="absolute left-1/2 top-1/2 h-[14%] w-full -translate-x-1/2 -translate-y-1/2 -rotate-45 rounded bg-[#d9534a]/90" />
+                  </span>
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-        <div className={`board-frame relative aspect-square w-full overflow-hidden rounded-lg ${winner !== null ? 'saturate-[.7]' : ''}`}>
-          <div className="absolute inset-0 grid grid-cols-10 grid-rows-10">
-            {Array.from({ length: 100 }, (_, i) => {
-              const r = (i / 10) | 0; const c = i % 10;
-              const n = sq(r, c);
-              const dark = (r + c) % 2 === 1;
-              const isLast = lastMove !== null && (lastMove.from === n || lastMove.to === n);
-              const isSel = selected === n;
-              return (
-                <button key={n} type="button" onClick={() => onSquare(n)} className={`relative block h-full w-full ${dark ? 'sq-dark' : 'sq-light'}`}>
-                  {dark && showNums && (
-                    <span className="pointer-events-none absolute left-[6%] top-[3%] font-mono text-[8px] leading-none text-white/30 sm:text-[11px]">{n}</span>
-                  )}
-                  {isLast && <span className="pointer-events-none absolute inset-0 bg-acc/20" />}
-                  {isSel && <span className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-acc" />}
-                  {destQuiet.has(n) && (
-                    <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                      <span className="h-[30%] w-[30%] rounded-full border border-acc/70 bg-acc/35 shadow-[0_0_10px_color-mix(in_oklab,var(--accent)_50%,transparent)]" />
-                    </span>
-                  )}
-                  {destCaps.has(n) && <span className="dest-pulse pointer-events-none absolute inset-0 ring-[3px] ring-inset ring-[#d9534a]/90" />}
-                  {victims.has(n) && (
-                    <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                      <span className="relative h-[46%] w-[46%]">
-                        <span className="absolute left-1/2 top-1/2 h-[14%] w-full -translate-x-1/2 -translate-y-1/2 rotate-45 rounded bg-[#d9534a]/90" />
-                        <span className="absolute left-1/2 top-1/2 h-[14%] w-full -translate-x-1/2 -translate-y-1/2 -rotate-45 rounded bg-[#d9534a]/90" />
-                      </span>
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+      {/* шашки */}
+      {pieces.map((p) => {
+        const [r, c] = rc(p.n);
+        const rr = flipped ? 9 - r : r;
+        const cc = flipped ? 9 - c : c;
+        return (
+          <div
+            key={p.id}
+            className="piece-layer"
+            style={{ transform: `translate(${cc * 100}%, ${rr * 100}%)` }}
+            onClick={() => onSquare(p.n)}
+          >
+            <div className={[
+              'piece-disc',
+              p.color === WHITE ? 'piece-white' : 'piece-black',
+              p.fresh ? 'piece-pop' : '',
+              selected === p.n ? 'piece-selected' : '',
+            ].join(' ')}>
+              {p.king && <Crown />}
+            </div>
           </div>
+        );
+      })}
 
-          {pieces.map((p) => {
-            const [r, c] = rc(p.n);
-            const rr = flipped ? 9 - r : r;
-            const cc = flipped ? 9 - c : c;
+      {/* стрелка лучшего хода / превью */}
+      {arrow && (
+        <svg key={(preview ? 'p' : 'b') + arrow.d} viewBox="0 0 100 100" className="pointer-events-none absolute inset-0 z-30 h-full w-full">
+          <defs>
+            <marker id="ah" markerWidth="5" markerHeight="5" refX="2.6" refY="2.5" orient="auto">
+              <path d="M0,0 L5,2.5 L0,5 z" fill={preview ? '#7fc4a4' : 'var(--accent)'} />
+            </marker>
+          </defs>
+          <path
+            d={arrow.d} pathLength={1} fill="none"
+            stroke={preview ? '#7fc4a4' : 'var(--accent)'}
+            strokeOpacity={preview ? 0.85 : 0.95}
+            strokeWidth={arrow.isCap ? 2.6 : 2}
+            strokeLinecap="round" strokeLinejoin="round"
+            markerEnd="url(#ah)" className="arrow-draw"
+            style={{ filter: `drop-shadow(0 0 3px ${preview ? 'rgba(127,196,164,.5)' : 'color-mix(in oklab, var(--accent) 45%, transparent)'})` }}
+          />
+          {arrow.caps.map((n) => {
+            const [r, c] = rc(n);
+            const rr = flipped ? 9 - r : r; const cc = flipped ? 9 - c : c;
             return (
-              <div
-                key={p.id}
-                className="piece-layer"
-                style={{ transform: `translate(${cc * 100}%, ${rr * 100}%)` }}
-                onClick={() => onSquare(p.n)}
-              >
-                <div className={[
-                  'piece-disc',
-                  p.color === WHITE ? 'piece-white' : 'piece-black',
-                  p.fresh ? 'piece-pop' : '',
-                  selected === p.n ? 'piece-selected' : '',
-                ].join(' ')}>
-                  {p.king && <Crown />}
-                </div>
-              </div>
+              <circle key={n} cx={cc * 10 + 5} cy={rr * 10 + 5} r={3.1}
+                fill="rgba(217,83,74,.18)" stroke="#d9534a" strokeWidth={0.8} className="arrow-draw-cap" />
             );
           })}
+        </svg>
+      )}
 
-          {arrow && (
-            <svg key={(preview ? 'p' : 'b') + arrow.d} viewBox="0 0 100 100" className="pointer-events-none absolute inset-0 z-30 h-full w-full">
-              <defs>
-                <marker id="ah" markerWidth="5" markerHeight="5" refX="2.6" refY="2.5" orient="auto">
-                  <path d="M0,0 L5,2.5 L0,5 z" fill={preview ? '#7fc4a4' : 'var(--accent)'} />
-                </marker>
-              </defs>
-              <path
-                d={arrow.d} pathLength={1} fill="none"
-                stroke={preview ? '#7fc4a4' : 'var(--accent)'}
-                strokeOpacity={preview ? 0.85 : 0.95}
-                strokeWidth={arrow.isCap ? 2.6 : 2}
-                strokeLinecap="round" strokeLinejoin="round"
-                markerEnd="url(#ah)" className="arrow-draw"
-              />
-              {arrow.caps.map((n) => {
-                const [r, c] = rc(n);
-                const rr = flipped ? 9 - r : r; const cc = flipped ? 9 - c : c;
-                return (
-                  <circle key={n} cx={cc * 10 + 5} cy={rr * 10 + 5} r={3.1}
-                    fill="rgba(217,83,74,.18)" stroke="#d9534a" strokeWidth={0.8} className="arrow-draw-cap" />
-                );
-              })}
-            </svg>
-          )}
-
-          {winner !== null && (
-            <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#0a1214]/55 backdrop-blur-[2px]">
-              <div className="rounded-lg border border-acc/40 bg-pan/95 px-6 py-4 text-center shadow-[0_10px_40px_rgba(0,0,0,.5)]">
-                <div className="font-display text-sm font-bold tracking-[.18em] text-acc2 sm:text-base">
-                  {winner === WHITE ? 'ПОБЕДА БЕЛЫХ' : 'ПОБЕДА ЧЁРНЫХ'}
-                </div>
-                <div className="mt-1 text-xs text-mut">у соперника нет ходов · ФМЖД</div>
-              </div>
+      {winner !== null && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#0a1214]/55 backdrop-blur-[2px]">
+          <div className="pop-in rounded-xl border border-acc/40 bg-pan/95 px-6 py-4 text-center shadow-[0_10px_40px_rgba(0,0,0,.5)]">
+            <div className="font-display text-sm font-bold tracking-[.18em] text-acc2 sm:text-base">
+              {winner === WHITE ? 'ПОБЕДА БЕЛЫХ' : 'ПОБЕДА ЧЁРНЫХ'}
             </div>
-          )}
+            <div className="mt-1 text-xs text-mut">у соперника нет ходов · ФМЖД</div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
-function EvalBar({ pos }: { pos: Pos }) {
-  const mat = useMemo(() => {
-    let m = 0;
+/* горизонтальная шкала материала под доской */
+function MaterialStrip({ pos }: { pos: Pos }) {
+  const { w, b } = useMemo(() => {
+    let w = 0; let b = 0;
     for (let n = 1; n <= 50; n++) {
       const v = pos.b[n];
-      if (v === 1) m++; else if (v === -1) m--;
-      else if (v === 2) m += 3; else if (v === -2) m -= 3;
+      if (v === 1) w += 1; else if (v === -1) b += 1;
+      else if (v === 2) w += 3; else if (v === -2) b += 3;
     }
-    return m;
+    return { w, b };
   }, [pos]);
+  const total = w + b || 1;
   return (
-    <div className="flex w-3.5 flex-col overflow-hidden rounded-md border border-white/10 bg-[#101d20] sm:w-4">
-      <div className="eval-seg-top" style={{ height: `${50 + Math.max(-46, Math.min(46, mat * 9))}%` }} />
-      <div className="eval-seg-bottom flex-1" />
+    <div className="mt-2.5">
+      <div className="flex h-1.5 w-full overflow-hidden rounded-full border border-white/10 bg-[#10181b]">
+        <div className="eval-h-white" style={{ width: `${(w / total) * 100}%` }} />
+        <div className="flex-1" />
+      </div>
+      <div className="mt-1 flex items-center justify-between font-mono text-[10px] text-dim">
+        <span>белые · {w}</span>
+        <span className="text-mut">материал (дамка = 3)</span>
+        <span>чёрные · {b}</span>
+      </div>
     </div>
   );
 }
 
 /* ================= панель анализа ================= */
 
-function TbBlock({ tb }: { tb: TbVerdict }) {
-  const label = tb.result === 1 ? 'Выигрыш белых' : tb.result === -1 ? 'Выигрыш чёрных' : 'Ничья';
+function TbRow({ tb }: { tb: TbVerdict }) {
+  const label = tb.result === 1 ? 'выигрыш белых' : tb.result === -1 ? 'выигрыш чёрных' : 'ничья';
   const tone = tb.result === 0
     ? 'border-white/15 bg-white/[.05] text-body'
     : tb.result === 1
       ? 'border-[#5fb287]/45 bg-[#5fb287]/10 text-[#8ed0ae]'
       : 'border-[#d9534a]/45 bg-[#d9534a]/10 text-[#e5938b]';
   return (
-    <div className={`mt-3 flex items-center gap-2.5 rounded-lg border px-3 py-2 ${tone}`}>
-      <span className="chip chip-amber shrink-0">БАЗА ФИГУР</span>
-      <span className="min-w-0 text-xs font-semibold">{label}</span>
-      <span className="ml-auto hidden truncate pl-2 text-[11px] opacity-80 min-[400px]:block">{tb.note}</span>
-      <span className="chip shrink-0">{tb.confidence === 'theory' ? 'теория' : 'практика'}</span>
+    <div className={`mt-3 flex items-center gap-2 rounded-lg border px-3 py-2 ${tone}`}>
+      <span className="chip chip-amber shrink-0">база фигур</span>
+      <span className="truncate text-xs font-semibold">{label}</span>
+      <span className="ml-auto hidden truncate pl-2 text-[10px] opacity-75 min-[400px]:block">{tb.note}</span>
     </div>
   );
 }
@@ -391,55 +400,70 @@ function AnalysisPanel({
   engine, boardKey, side, b, tb, onPlay, onHover,
 }: {
   engine: EngineState; boardKey: string; side: Side; b: Int8Array;
-  tb: TbVerdict | null; onPlay: (m: Move) => void; onHover: (m: Move | null) => void;
+  tb: TbVerdict | null; onPlay: (p: Pair) => void; onHover: (p: Pair | null) => void;
 }) {
   const stale = engine.forKey !== boardKey;
   const thinking = engine.thinking || stale;
   const whiteScore = engine.score !== null ? engine.score * side : null;
   const t = tempi(b);
+  const isBook = !!engine.book && !stale;
 
-  const scoreText = whiteScore === null ? '—'
-    : engine.mate ? (whiteScore > 0 ? 'мат · белые' : 'мат · чёрные')
+  const scoreText = whiteScore === null ? (isBook ? 'книга' : '—')
+    : engine.mate ? (whiteScore > 0 ? 'мат · б' : 'мат · ч')
       : `${whiteScore / 100 > 0 ? '+' : ''}${(whiteScore / 100).toFixed(2)}`;
 
-  const verdict = whiteScore === null ? 'расчёт позиции…'
-    : engine.mate ? 'форсированный выигрыш'
-      : Math.abs(whiteScore) < 15 ? 'равная позиция'
-        : Math.abs(whiteScore) < 60 ? 'небольшой перевес'
-          : Math.abs(whiteScore) < 160 ? 'заметный перевес' : 'решающий перевес';
+  const verdict = isBook ? `дебютная книга · ${engine.book}`
+    : whiteScore === null ? 'расчёт позиции…'
+      : engine.mate ? 'форсированный выигрыш'
+        : Math.abs(whiteScore) < 15 ? 'равная позиция'
+          : Math.abs(whiteScore) < 60 ? 'небольшой перевес'
+            : Math.abs(whiteScore) < 160 ? 'заметный перевес' : 'решающий перевес';
 
   const materialChip = whiteScore !== null && !engine.mate && Math.abs(whiteScore) >= 100
     ? `${whiteScore > 0 ? '+' : '−'}${Math.floor(Math.abs(whiteScore) / 100)} шаш.` : null;
 
+  const topScore = engine.candidates[0]?.score ?? null;
+
   return (
     <section className="panel p-3.5 sm:p-4" onMouseLeave={() => onHover(null)}>
-      <header className="mb-2.5 flex items-center justify-between gap-2">
-        <h2 className="font-display text-[10px] font-bold tracking-[.22em] text-mut">АНАЛИЗ</h2>
+      <header className="mb-2 flex items-center justify-between gap-2">
+        <h2 className="flex items-center gap-1.5 font-display text-[10px] font-bold tracking-[.22em] text-mut">
+          <ICpu size={13} className="text-acc2" />АНАЛИЗ
+        </h2>
         <span className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[.04] px-2.5 py-1 text-[10px] text-mut">
           <Dot color={thinking ? 'var(--accent)' : '#5fb287'} pulse={thinking} />
-          {thinking ? `счёт · d${engine.depth || '…'}` : `готово · d${engine.depth}`}
+          {thinking ? `счёт · d${engine.depth || '…'}` : isBook ? 'книга' : `готово · d${engine.depth}`}
         </span>
       </header>
 
       <div className="flex items-end justify-between gap-3">
-        <div>
-          <div className={`font-mono text-[2.1rem] font-bold leading-none tabular-nums sm:text-[2.5rem] ${
-            whiteScore === null ? 'text-dim' : whiteScore > 10 ? 'text-ink' : whiteScore < -10 ? 'text-mut' : 'text-body'
+        <div className="min-w-0">
+          <div className={`font-mono text-[2rem] font-bold leading-none tabular-nums sm:text-[2.4rem] ${
+            whiteScore === null ? 'text-acc2' : whiteScore > 10 ? 'text-ink' : whiteScore < -10 ? 'text-mut' : 'text-body'
           } ${thinking ? 'score-thinking' : ''}`}>
             {scoreText}
           </div>
-          <div className="mt-1 text-[11px] text-mut">
-            {verdict}{whiteScore !== null && !engine.mate ? ` · ${whiteScore >= 0 ? 'белые' : 'чёрные'}` : ''}
-          </div>
+          <div className="mt-1 truncate text-[11px] text-mut">{verdict}</div>
         </div>
         <div className="flex flex-col items-end gap-1">
-          <span className="chip">{engine.nodes ? `${(engine.nodes / 1000).toFixed(0)}k узлов` : '—'}</span>
-          <span className="chip">темпы {t > 0 ? `+${t}` : t}</span>
-          {materialChip && <span className="chip chip-amber">{materialChip}</span>}
+          {!thinking && engine.nodes > 0 && (
+            <>
+              <Chip>{engine.nodes >= 1000 ? `${(engine.nodes / 1000).toFixed(0)}k узлов` : `${engine.nodes} узлов`}</Chip>
+              <Chip>{((engine.nps || 0) / 1000).toFixed(0)}kN/s · {engine.ms}мс</Chip>
+            </>
+          )}
+          <Chip>темпы {t > 0 ? `+${t}` : t}</Chip>
+          {materialChip && <Chip amber>{materialChip}</Chip>}
         </div>
       </div>
 
-      {tb && <TbBlock tb={tb} />}
+      {thinking && (
+        <div className="mt-2.5 h-0.5 overflow-hidden rounded-full bg-white/[.07]">
+          <div className="shimmer h-full w-full" />
+        </div>
+      )}
+
+      {tb && <TbRow tb={tb} />}
 
       {engine.best && !stale ? (
         <button
@@ -447,8 +471,12 @@ function AnalysisPanel({
           className="group mt-3 flex w-full items-center justify-between rounded-lg border border-acc/40 bg-acc/10 px-4 py-3 text-left transition-all duration-150 hover:border-acc/80 hover:bg-acc/18 active:scale-[.98]"
         >
           <span>
-            <span className="block text-[9px] font-semibold uppercase tracking-[.18em] text-acc">Лучший ход</span>
-            <span className="font-mono text-xl font-bold text-acc2 sm:text-2xl">{moveNotation(engine.best)}</span>
+            <span className="block text-[9px] font-semibold uppercase tracking-[.18em] text-acc">
+              {isBook ? `Лучший ход · ${engine.book}` : 'Лучший ход'}
+            </span>
+            <span className="font-mono text-xl font-bold text-acc2 sm:text-2xl">
+              {engine.best.from}→{engine.best.to}
+            </span>
           </span>
           <span className="rounded-lg border border-acc/50 px-3 py-2 text-xs font-semibold text-acc2 group-hover:bg-acc/20">
             сыграть →
@@ -466,23 +494,28 @@ function AnalysisPanel({
           <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-[.18em] text-dim">
             Кандидаты · касание — ход, наведение — стрелка
           </div>
-          <ul className="divide-y divide-white/[.06] overflow-hidden rounded-lg border border-white/10">
+          <ul className="overflow-hidden rounded-lg border border-white/10">
             {engine.candidates.map((c, i) => {
               const s = (c.score * side) / 100;
+              const share = topScore !== null && topScore !== c.score
+                ? Math.max(0.08, (c.score - (topScore - 400)) / 400)
+                : 1;
               return (
-                <li key={`${c.move.from}-${c.move.to}-${i}`}>
+                <li key={`${c.from}-${c.to}-${i}`} className="border-t border-white/[.05] first:border-t-0">
                   <button
                     type="button"
-                    onMouseEnter={() => onHover(c.move)} onFocus={() => onHover(c.move)}
-                    onClick={() => onPlay(c.move)}
-                    className="flex w-full items-center gap-2.5 bg-white/[.02] px-3 py-2.5 text-left transition-colors hover:bg-acc/10 active:bg-acc/20"
+                    onMouseEnter={() => onHover({ from: c.from, to: c.to })}
+                    onFocus={() => onHover({ from: c.from, to: c.to })}
+                    onClick={() => onPlay({ from: c.from, to: c.to })}
+                    className="relative flex w-full items-center gap-2.5 overflow-hidden bg-white/[.02] px-3 py-2.5 text-left transition-colors hover:bg-acc/10 active:bg-acc/20"
                   >
-                    <span className="w-4 font-mono text-[11px] text-dim">{i + 1}</span>
-                    <span className="font-mono text-base font-semibold text-ink">{moveNotation(c.move)}</span>
-                    {c.move.captures.length > 0 && (
-                      <span className="rounded bg-[#d9534a]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#e58a82]">×{c.move.captures.length}</span>
+                    <span className="absolute inset-y-0 left-0 bg-acc/[.07]" style={{ width: `${share * 100}%` }} />
+                    <span className="relative w-4 font-mono text-[11px] text-dim">{i + 1}</span>
+                    <span className="relative font-mono text-base font-semibold text-ink">{c.from}{c.caps > 0 ? 'x' : '–'}{c.to}</span>
+                    {c.caps > 0 && (
+                      <span className="relative rounded bg-[#d9534a]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#e58a82]">×{c.caps}</span>
                     )}
-                    <span className={`ml-auto font-mono text-xs tabular-nums ${s >= 0 ? 'text-[#8ed0ae]' : 'text-[#c9a0a0]'}`}>
+                    <span className={`relative ml-auto font-mono text-xs tabular-nums ${s >= 0 ? 'text-[#8ed0ae]' : 'text-[#c9a0a0]'}`}>
                       {s > 0 ? '+' : ''}{s.toFixed(2)}
                     </span>
                   </button>
@@ -500,7 +533,7 @@ function AnalysisPanel({
             {engine.pv.map((m, i) => (
               <span key={i}>
                 <span className="text-dim">{Math.floor(i / 2) + 1}{i % 2 === 0 ? '.' : '…'}</span>{' '}
-                <span className={i === 0 ? 'text-acc2' : ''}>{moveNotation(m)}</span>{' '}
+                <span className={i === 0 ? 'text-acc2' : ''}>{m.from}–{m.to}</span>{' '}
               </span>
             ))}
           </div>
@@ -510,7 +543,7 @@ function AnalysisPanel({
   );
 }
 
-/* ================= лента ходов ================= */
+/* ================= партия ================= */
 
 function MovesPanel({ game }: { game: ReturnType<typeof useGame> }) {
   const { moves, ply, goto } = game;
@@ -528,7 +561,7 @@ function MovesPanel({ game }: { game: ReturnType<typeof useGame> }) {
         <h2 className="font-display text-[10px] font-bold tracking-[.22em] text-mut">ПАРТИЯ</h2>
         <span className="font-mono text-[11px] text-dim">ход {ply}/{moves.length}</span>
       </div>
-      <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-white/10 scroll-slim sm:max-h-80">
+      <div className="mt-2 max-h-[46vh] overflow-y-auto rounded-lg border border-white/10 scroll-slim min-[760px]:max-h-[52vh]">
         <button
           type="button" ref={ply === 0 ? activeRef : undefined} onClick={() => goto(0)}
           className={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-white/[.06] ${ply === 0 ? 'bg-acc/12' : ''}`}
@@ -557,7 +590,7 @@ function MovesPanel({ game }: { game: ReturnType<typeof useGame> }) {
         ))}
         {moves.length === 0 && (
           <div className="px-3 py-5 text-center text-xs text-dim">
-            Ходов пока нет — делайте ходы на доске или загрузите партию во вкладке «Форматы».
+            Ходов пока нет — играйте на доске или загрузите партию во вкладке «Форматы».
           </div>
         )}
       </div>
@@ -593,11 +626,15 @@ function FormatsPanel({ game }: { game: ReturnType<typeof useGame> }) {
     URL.revokeObjectURL(url);
     setMsg({ kind: 'ok', text: 'partiya.pdn сохранён' });
   };
+  const loadFen = () => {
+    const err = loadFenText(fenInput);
+    setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: 'Позиция из FEN загружена' });
+  };
 
   return (
     <div className="flex flex-col gap-3.5">
       {msg && (
-        <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
+        <div className={`pop-in flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
           msg.kind === 'ok' ? 'border-[#5fb287]/40 bg-[#5fb287]/10 text-[#8ed0ae]' : 'border-[#d9534a]/40 bg-[#d9534a]/10 text-[#e5938b]'}`}>
           {msg.kind === 'ok' ? <ICheck size={14} /> : <IWarn size={14} />}
           {msg.text}
@@ -606,7 +643,7 @@ function FormatsPanel({ game }: { game: ReturnType<typeof useGame> }) {
       <section className="panel p-3.5 sm:p-4">
         <header className="mb-2 flex items-center justify-between">
           <h2 className="font-display text-[10px] font-bold tracking-[.22em] text-mut">FEN ПОЗИЦИИ</h2>
-          <span className="chip">Liens</span>
+          <Chip>Liens</Chip>
         </header>
         <div className="flex gap-1.5">
           <input value={fen} readOnly spellCheck={false}
@@ -617,17 +654,10 @@ function FormatsPanel({ game }: { game: ReturnType<typeof useGame> }) {
         </div>
         <div className="mt-2 flex gap-1.5">
           <input value={fenInput} onChange={(e) => setFenInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key !== 'Enter') return;
-              const err = loadFenText(fenInput);
-              setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: 'Позиция загружена' });
-            }}
-            placeholder="W:W31-50:B1-20" spellCheck={false}
+            onKeyDown={(e) => { if (e.key === 'Enter') loadFen(); }}
+            placeholder="W:W31-50:B1-20  ·  B:WK48,44:BK25" spellCheck={false}
             className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/25 px-3 py-2.5 font-mono text-xs text-ink outline-none transition-colors placeholder:text-dim focus:border-acc/60" />
-          <TBtn title="Загрузить позицию" accent onClick={() => {
-            const err = loadFenText(fenInput);
-            setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: 'Позиция из FEN загружена' });
-          }} className="shrink-0">
+          <TBtn title="Загрузить позицию" accent onClick={loadFen} className="shrink-0">
             <ILoad size={15} />
           </TBtn>
         </div>
@@ -639,7 +669,7 @@ function FormatsPanel({ game }: { game: ReturnType<typeof useGame> }) {
       <section className="panel p-3.5 sm:p-4">
         <header className="mb-2 flex items-center justify-between">
           <h2 className="font-display text-[10px] font-bold tracking-[.22em] text-mut">ПАРТИЯ · PDN</h2>
-          <span className="chip">{moves.length} полуходов</span>
+          <Chip>{moves.length} полуходов</Chip>
         </header>
         <textarea value={pdnInput} onChange={(e) => setPdnInput(e.target.value)} rows={6} spellCheck={false}
           placeholder={'Вставьте партию в PDN:\n1.32-28 19-23 2.28x19 14x23 ...'}
@@ -673,7 +703,6 @@ function FormatsPanel({ game }: { game: ReturnType<typeof useGame> }) {
 /* ================= приложение ================= */
 
 type Tab = 'analysis' | 'game' | 'formats';
-
 const TABS: { id: Tab; label: string }[] = [
   { id: 'analysis', label: 'Анализ' },
   { id: 'game', label: 'Партия' },
@@ -700,7 +729,7 @@ function Logo() {
 export default function App() {
   const game = useGame();
   const [tab, setTab] = useState<Tab>('analysis');
-  const [preview, setPreview] = useState<Move | null>(null);
+  const [preview, setPreview] = useState<{ from: number; to: number } | null>(null);
   const gameRef = useRef(game);
   gameRef.current = game;
 
@@ -725,92 +754,92 @@ export default function App() {
   return (
     <div className="min-h-dvh">
       {/* шапка */}
-      <header className="relative z-50 border-b border-white/[.07] bg-pan/80 backdrop-blur-sm">
-        <div className="mx-auto flex max-w-[1120px] items-center gap-2.5 px-3 py-2.5 sm:gap-3 sm:px-4">
+      <header className="relative z-50 border-b border-white/[.07] bg-pan/85 backdrop-blur-md">
+        <div className="mx-auto flex max-w-[1080px] items-center gap-2.5 px-3 py-2.5 sm:gap-3 sm:px-4">
           <Logo />
           <div className="min-w-0">
             <h1 className="font-display text-[13px] font-black leading-none tracking-[.12em] text-ink sm:text-base">
               СТО<span className="text-acc2">КЛЕТКА</span>
             </h1>
-            <p className="mt-0.5 truncate text-[10px] leading-none text-dim">шашки 100 · ФМЖД</p>
+            <p className="mt-0.5 truncate text-[10px] leading-none text-dim">шашки 100 · правила ФМЖД</p>
           </div>
           <div className="ml-auto hidden items-center gap-2 rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5 md:flex">
             <Dot color={g.engine.thinking ? 'var(--accent)' : '#5fb287'} pulse={g.engine.thinking} />
             <span className="font-mono text-[11px] text-mut">
-              движок α-β{g.engine.thinking ? ` · d${g.engine.depth || 1}…` : g.engine.depth ? ` · d${g.engine.depth}` : ''}
+              движок · поток №2{g.engine.thinking ? ` · d${g.engine.depth || 1}…` : g.engine.depth ? ` · d${g.engine.depth}` : ''}
             </span>
           </div>
           <div className="ml-auto md:ml-0"><ThemePicker /></div>
         </div>
       </header>
 
-      <main className="mx-auto grid max-w-[1120px] gap-5 px-3 py-4 min-[880px]:grid-cols-[minmax(0,1fr)_370px] min-[880px]:gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
-        {/* левая колонка: доска + управление */}
+      <main className="mx-auto grid max-w-[1080px] gap-4 px-3 py-4 min-[760px]:grid-cols-[minmax(0,1fr)_360px] min-[760px]:gap-5 min-[1024px]:grid-cols-[minmax(0,1fr)_392px]">
+        {/* доска + пульт */}
         <div className="min-w-0">
-          <div className="mx-auto max-w-[560px] pl-5 pr-0 min-[880px]:max-w-[520px] min-[1024px]:max-w-[560px] sm:pl-6">
+          <div className="mx-auto w-full max-w-[560px] min-[760px]:max-w-none">
             <BoardView
               pos={g.pos} legal={g.legal} selected={g.selected} lastMove={g.lastMove}
               best={best} preview={preview} flipped={g.flipped} showNums={g.showNums}
               winner={g.winner} movableFroms={g.movableFroms} onSquare={g.clickSquare}
             />
+            <MaterialStrip pos={g.pos} />
           </div>
 
-          {/* статус + быстрая навигация (главный пульт на телефоне) */}
-          <div className="mx-auto mt-6 max-w-[560px] pl-5 sm:mt-7 sm:pl-6">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-all duration-300 ${
-                !g.winner && g.pos.side === WHITE ? 'border-acc/60 bg-acc/12 text-acc2' : 'border-white/10 bg-white/[.03] text-dim'}`}>
-                <span className="h-2 w-2 rounded-full bg-ink" />Белые
-              </span>
-              <span className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-all duration-300 ${
-                !g.winner && g.pos.side !== WHITE ? 'border-acc/60 bg-acc/12 text-acc2' : 'border-white/10 bg-white/[.03] text-dim'}`}>
-                <span className="h-2 w-2 rounded-full bg-[#15181c] shadow-[0_0_0_1px_rgba(255,255,255,.3)]" />Чёрные
-              </span>
-              <span className="ml-auto font-mono text-[10px] text-dim">
-                {g.winner !== null ? 'партия окончена' : `ход ${g.pos.side === WHITE ? 'белых' : 'чёрных'}`}
-              </span>
-            </div>
-
-            {g.mustCapture && g.winner === null && (
-              <div className="dest-pulse mt-2 flex items-center gap-1.5 rounded-lg border border-[#d9534a]/50 bg-[#d9534a]/12 px-3 py-1.5 text-[11px] font-bold tracking-wide text-[#e58a82]">
-                <IWarn size={13} />ВЗЯТИЕ ОБЯЗАТЕЛЬНО
+          <div className="mx-auto mt-3 w-full max-w-[560px] min-[760px]:mt-4 min-[760px]:max-w-none">
+            <section className="panel p-2.5 sm:p-3">
+              {/* статус */}
+              <div className="flex flex-wrap items-center gap-1.5 px-1">
+                <span className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-all duration-300 ${
+                  !g.winner && g.pos.side === WHITE ? 'border-acc/60 bg-acc/12 text-acc2' : 'border-white/10 bg-white/[.03] text-dim'}`}>
+                  <span className="h-2 w-2 rounded-full bg-ink" />Белые
+                </span>
+                <span className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-all duration-300 ${
+                  !g.winner && g.pos.side !== WHITE ? 'border-acc/60 bg-acc/12 text-acc2' : 'border-white/10 bg-white/[.03] text-dim'}`}>
+                  <span className="h-2 w-2 rounded-full bg-[#15181c] shadow-[0_0_0_1px_rgba(255,255,255,.3)]" />Чёрные
+                </span>
+                <span className="ml-auto font-mono text-[10px] text-dim">
+                  {g.winner !== null ? 'партия окончена' : `ход ${g.pos.side === WHITE ? 'белых' : 'чёрных'}`}
+                </span>
               </div>
-            )}
 
-            <div className="mt-2.5 flex items-center gap-1.5">
-              <TBtn title="В начало" onClick={g.toStart} disabled={g.ply === 0} className="h-12 flex-1"><IFirst /></TBtn>
-              <TBtn title="Назад" onClick={g.prev} disabled={g.ply === 0} className="h-12 flex-1"><IPrev /></TBtn>
-              <TBtn
-                title={g.auto ? 'Пауза' : 'Автопроигрывание'} accent active={g.auto}
-                onClick={() => g.setAuto(!g.auto)} disabled={g.moves.length === 0}
-                className="h-12 flex-1"
-              >
-                {g.auto ? <IPause /> : <IPlay />}
-              </TBtn>
-              <TBtn title="Вперёд" onClick={g.next} disabled={g.ply >= g.moves.length} className="h-12 flex-1"><INext /></TBtn>
-              <TBtn title="В конец" onClick={g.toEnd} disabled={g.ply >= g.moves.length} className="h-12 flex-1"><ILast /></TBtn>
-              <span className="mx-0.5 hidden h-7 w-px bg-white/10 sm:block" />
-              <TBtn title="Перевернуть доску" onClick={g.toggleFlip} active={g.flipped} className="h-12 w-11 px-0"><IFlip /></TBtn>
-              <TBtn title="Нумерация полей" onClick={g.toggleNums} active={g.showNums} className="h-12 w-11 px-0"><IHash /></TBtn>
-              <TBtn title="Новая партия" onClick={g.newGame} className="h-12 w-11 px-0"><IPlus /></TBtn>
-            </div>
+              {g.mustCapture && g.winner === null && (
+                <div className="dest-pulse mx-1 mt-2 flex items-center gap-1.5 rounded-lg border border-[#d9534a]/50 bg-[#d9534a]/12 px-3 py-1.5 text-[11px] font-bold tracking-wide text-[#e58a82]">
+                  <IWarn size={13} />ВЗЯТИЕ ОБЯЗАТЕЛЬНО
+                </div>
+              )}
 
-            <p className="mt-2.5 hidden text-[10px] leading-relaxed text-dim min-[880px]:block">
-              Клик по своей шашке — выбор, по подсвеченному полю — ход. «×» — побиваемые поля. Стрелка — лучший ход движка.
-            </p>
+              {/* навигация */}
+              <div className="mt-2 flex items-center gap-1.5">
+                <TBtn title="В начало" onClick={g.toStart} disabled={g.ply === 0} className="h-11 flex-1"><IFirst /></TBtn>
+                <TBtn title="Назад" onClick={g.prev} disabled={g.ply === 0} className="h-11 flex-1"><IPrev /></TBtn>
+                <TBtn
+                  title={g.auto ? 'Пауза' : 'Автопроигрывание'} accent active={g.auto}
+                  onClick={() => g.setAuto(!g.auto)} disabled={g.moves.length === 0}
+                  className="h-11 flex-1"
+                >
+                  {g.auto ? <IPause /> : <IPlay />}
+                </TBtn>
+                <TBtn title="Вперёд" onClick={g.next} disabled={g.ply >= g.moves.length} className="h-11 flex-1"><INext /></TBtn>
+                <TBtn title="В конец" onClick={g.toEnd} disabled={g.ply >= g.moves.length} className="h-11 flex-1"><ILast /></TBtn>
+                <span className="mx-0.5 h-7 w-px shrink-0 bg-white/10" />
+                <TBtn title="Перевернуть доску" onClick={g.toggleFlip} active={g.flipped} className="h-11 w-11 shrink-0 px-0"><IFlip /></TBtn>
+                <TBtn title="Нумерация полей" onClick={g.toggleNums} active={g.showNums} className="h-11 w-11 shrink-0 px-0"><IHash /></TBtn>
+                <TBtn title="Новая партия" onClick={g.newGame} className="h-11 w-11 shrink-0 px-0"><IPlus /></TBtn>
+              </div>
+            </section>
           </div>
         </div>
 
-        {/* правая колонка: вкладки + панели */}
+        {/* вкладки + панели */}
         <div className="flex min-w-0 flex-col gap-3.5">
           <nav className="grid grid-cols-3 rounded-xl border border-white/10 bg-white/[.03] p-1">
             {TABS.map((t) => (
               <button key={t.id} type="button" onClick={() => setTab(t.id)}
-                className={`rounded-lg px-2 py-2.5 text-xs font-semibold transition-all duration-150 active:scale-[.97] ${
+                className={`rounded-lg px-2 py-2.5 font-display text-[11px] font-bold tracking-[.08em] transition-all duration-150 active:scale-[.97] ${
                   tab === t.id
                     ? 'bg-acc/15 text-acc2 shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--accent)_35%,transparent)]'
                     : 'text-mut hover:bg-white/[.05] hover:text-body'}`}>
-                {t.label}
+                {t.label.toUpperCase()}
               </button>
             ))}
           </nav>
@@ -818,7 +847,7 @@ export default function App() {
           {tab === 'analysis' && (
             <AnalysisPanel
               engine={g.engine} boardKey={g.boardKey} side={g.pos.side} b={g.pos.b} tb={g.tb}
-              onPlay={(m) => g.playFromTo(m.from, m.to)} onHover={setPreview}
+              onPlay={(p) => g.playFromTo(p.from, p.to)} onHover={setPreview}
             />
           )}
           {tab === 'game' && <MovesPanel game={g} />}
@@ -827,11 +856,11 @@ export default function App() {
       </main>
 
       <footer className="border-t border-white/[.06] pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4">
-        <div className="mx-auto flex max-w-[1120px] flex-wrap items-center gap-x-3 gap-y-1 px-3 text-[10px] text-dim sm:px-4">
+        <div className="mx-auto flex max-w-[1080px] flex-wrap items-center gap-x-3 gap-y-1 px-3 text-[10px] text-dim sm:px-4">
           <span className="font-display font-bold tracking-[.14em]">СТОКЛЕТКА</span>
-          <span>правила ФМЖД</span>
-          <span>движок α-β · офлайн</span>
-          <span>база фигур</span>
+          <span>летающие дамки · взятие большинства</span>
+          <span>движок в отдельном потоке</span>
+          <span>дебютная книга · база фигур</span>
           <span className="ml-auto font-mono">FEN · PDN</span>
         </div>
       </footer>

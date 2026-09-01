@@ -1,7 +1,7 @@
 /* ============================================================
- * Встроенный движок: альфа-бета с итеративным углублением,
- * хеш-таблицей и упорядочиванием ходов. Офлайн, без сети.
- * Оценки — в сотых долях шашки, с точки стороны, делающей ход.
+ * Поисковое ядро: альфа-бета с итеративным углублением,
+ * хеш-таблицей, MVV-LVA + killers, quiescence-поиск взятий.
+ * Оценки — в сотых долях шашки, negamax (от стороны хода).
  * ============================================================ */
 
 import { type Pos, type Move, applyMove, generateMoves, rc } from './core';
@@ -21,34 +21,68 @@ export interface EngineOut {
 export interface EngineProgress { depth: number; score: number; nodes: number }
 
 const MAN = 100;
-const KING = 310;
+const KING = 315;
 const MATE = 1_000_000;
 
 const CENTRAL = new Uint8Array(51);
 const EDGE = new Uint8Array(51);
+const ROW = new Int8Array(51);
+const COL = new Int8Array(51);
 for (let n = 1; n <= 50; n++) {
   const [r, c] = rc(n);
+  ROW[n] = r; COL[n] = c;
   CENTRAL[n] = r >= 3 && r <= 6 && c >= 3 && c <= 6 ? 1 : 0;
   EDGE[n] = c === 0 || c === 9 ? 1 : 0;
 }
 
+const DIRS = [[-1, -1], [-1, 1], [1, -1], [1, 1]] as const;
+
+/** Статическая оценка с точки зрения белых. */
 export function evaluate(b: Int8Array): number {
   let s = 0;
+  let wBack = 0; let bBack = 0;
   for (let n = 1; n <= 50; n++) {
     const v = b[n];
     if (v === 0) continue;
-    const [r] = rc(n);
-    if (v === 1) s += MAN + (9 - r) * 3 + (CENTRAL[n] ? 7 : 0) + (r === 9 ? 8 : 0) - (EDGE[n] ? 3 : 0);
-    else if (v === -1) s -= MAN + r * 3 + (CENTRAL[n] ? 7 : 0) + (r === 0 ? 8 : 0) - (EDGE[n] ? 3 : 0);
-    else if (v === 2) s += KING + (CENTRAL[n] ? 14 : 4);
-    else s -= KING + (CENTRAL[n] ? 14 : 4);
+    const r = ROW[n];
+    if (v === 1) {
+      s += MAN + (9 - r) * 3 + (CENTRAL[n] ? 7 : 0) - (EDGE[n] ? 3 : 0);
+      if (r === 9 && wBack < 4) { wBack++; s += 6; }
+    } else if (v === -1) {
+      s -= MAN + r * 3 + (CENTRAL[n] ? 7 : 0) - (EDGE[n] ? 3 : 0);
+      if (r === 0 && bBack < 4) { bBack++; s -= 6; }
+    } else if (v === 2) {
+      s += KING + (CENTRAL[n] ? 14 : 4) + kingMob(b, n);
+    } else {
+      s -= KING + (CENTRAL[n] ? 14 : 4) + kingMob(b, n);
+    }
   }
   return s;
 }
 
+/** Подвижность дамки (число доступных полей диагоналей). */
+function kingMob(b: Int8Array, n: number): number {
+  const r = ROW[n]; const c = COL[n];
+  let m = 0;
+  for (const [dr, dc] of DIRS) {
+    let r1 = r + dr; let c1 = c + dc;
+    while (r1 >= 0 && r1 < 10 && c1 >= 0 && c1 < 10) {
+      const nn = r1 * 5 + ((c1 + 1) >> 1);
+      if ((r1 + c1) % 2 === 0 || b[nn] !== 0) break;
+      m += 2; r1 += dr; c1 += dc;
+    }
+  }
+  return m;
+}
+
 interface TTEntry { depth: number; score: number; bound: 0 | 1 | 2; best: number }
 
-interface SState { nodes: number; deadline: number; tt: Map<string, TTEntry> }
+interface SState {
+  nodes: number;
+  deadline: number;
+  tt: Map<string, TTEntry>;
+  killers: Int32Array;
+}
 
 const TIMEOUT = Symbol('timeout');
 
@@ -58,14 +92,48 @@ function key(b: Int8Array, side: number): string {
   return s + (side > 0 ? 'w' : 'b');
 }
 
-const orderKey = (m: Move) => m.captures.length * 1000 + (m.king ? 500 : 0);
+const capVal = (m: Move): number => {
+  // MVV-LVA: больше жертв — выше приоритет; дамка-жертва дороже
+  let v = m.captures.length * 10000;
+  if (m.king) v += 500;
+  return v;
+};
 
-function orderMoves(moves: Move[], bestCode: number): Move[] {
+function orderMoves(moves: Move[], bestCode: number, ply: number, st: SState): Move[] {
+  const k = st.killers;
   return moves.slice().sort((a, b) => {
-    const ak = (a.from * 100 + a.to === bestCode ? 1_000_000 : 0) + orderKey(a);
-    const bk = (b.from * 100 + b.to === bestCode ? 1_000_000 : 0) + orderKey(b);
-    return bk - ak;
+    const ac = a.from * 100 + a.to;
+    const bc = b.from * 100 + b.to;
+    const as = (ac === bestCode ? 10_000_000 : 0)
+      + (ac === k[ply * 2] ? 900_000 : ac === k[ply * 2 + 1] ? 800_000 : 0)
+      + capVal(a);
+    const bs = (bc === bestCode ? 10_000_000 : 0)
+      + (bc === k[ply * 2] ? 900_000 : bc === k[ply * 2 + 1] ? 800_000 : 0)
+      + capVal(b);
+    return bs - as;
   });
+}
+
+/** Quiescence: достраиваем форсированные взятия. */
+function qsearch(pos: Pos, alpha: number, beta: number, ply: number, st: SState): number {
+  st.nodes++;
+  if ((st.nodes & 1023) === 0 && performance.now() > st.deadline) throw TIMEOUT;
+  if (ply > 12) return pos.side * evaluate(pos.b);
+
+  const moves = generateMoves(pos);
+  if (moves.length === 0) return -(MATE - ply);
+  const caps = moves[0].captures.length > 0 ? moves : [];
+
+  const stand = pos.side * evaluate(pos.b);
+  if (stand >= beta) return beta;
+  if (stand > alpha) alpha = stand;
+
+  for (const m of caps) {
+    const s = -qsearch(applyMove(pos, m), -beta, -alpha, ply + 1, st);
+    if (s > alpha) alpha = s;
+    if (alpha >= beta) return beta;
+  }
+  return alpha;
 }
 
 function negamax(pos: Pos, depth: number, alpha: number, beta: number, ply: number, st: SState): number {
@@ -77,27 +145,36 @@ function negamax(pos: Pos, depth: number, alpha: number, beta: number, ply: numb
 
   const k = key(pos.b, pos.side);
   const tt = st.tt.get(k);
-  if (tt && tt.depth >= depth) {
+  if (tt && tt.depth >= depth && ply > 0) {
     if (tt.bound === 0) return tt.score;
     if (tt.bound === 1 && tt.score > alpha) alpha = tt.score;
     else if (tt.bound === 2 && tt.score < beta) beta = tt.score;
     if (alpha >= beta) return tt.score;
   }
 
-  if (depth <= 0) return pos.side * evaluate(pos.b);
+  if (depth <= 0) return qsearch(pos, alpha, beta, ply, st);
 
-  const ordered = orderMoves(moves, tt ? tt.best : -1);
+  const ordered = orderMoves(moves, tt ? tt.best : -1, ply, st);
   let best = -Infinity;
   let bestCode = -1;
   let bound: 0 | 1 | 2 = 2;
+  let i = 0;
   for (const m of ordered) {
     const s = -negamax(applyMove(pos, m), depth - 1, -beta, -alpha, ply + 1, st);
     if (s > best) { best = s; bestCode = m.from * 100 + m.to; }
     if (s > alpha) { alpha = s; bound = 0; }
-    if (alpha >= beta) { bound = 1; break; }
+    if (alpha >= beta) {
+      bound = 1;
+      if (m.captures.length === 0) {
+        st.killers[ply * 2 + 1] = st.killers[ply * 2];
+        st.killers[ply * 2] = bestCode;
+      }
+      break;
+    }
+    i++;
   }
   st.tt.set(k, { depth, score: best, bound, best: bestCode });
-  if (st.tt.size > 700_000) st.tt.clear();
+  if (st.tt.size > 800_000) st.tt.clear();
   return best;
 }
 
@@ -111,7 +188,7 @@ function searchRoot(pos: Pos, depth: number, prev: Candidate[] | null, st: SStat
     m,
     s: prev?.find((p) => p.move.from === m.from && p.move.to === m.to)?.score ?? -Infinity,
   }));
-  scored.sort((a, b) => (b.s - a.s) || (orderKey(b.m) - orderKey(a.m)));
+  scored.sort((a, b) => (b.s - a.s) || (capVal(b.m) - capVal(a.m)));
 
   const results: Candidate[] = [];
   let best: Move = scored[0].m;
@@ -147,7 +224,12 @@ export async function analyze(
   onProgress: (p: EngineProgress) => void,
   token: { cancelled: boolean },
 ): Promise<EngineOut> {
-  const st: SState = { nodes: 0, deadline: performance.now() + opts.timeMs, tt: new Map() };
+  const st: SState = {
+    nodes: 0,
+    deadline: performance.now() + opts.timeMs,
+    tt: new Map(),
+    killers: new Int32Array(128).fill(-1),
+  };
   const out: EngineOut = {
     best: null, score: 0, depth: 0, nodes: 0, candidates: [], pv: [], mate: false,
   };
