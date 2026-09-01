@@ -1,6 +1,7 @@
 /* ============================================================
  * useGame — состояние партии, ввод ходов, навигация, движок
- * (отдельный поток), дебютная книга, база фигур, localStorage.
+ * (отдельный поток), дебютная книга, база фигур, авто-взятие
+ * и авто-ход, localStorage.
  * ============================================================ */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -37,45 +38,16 @@ const IDLE: EngineState = {
 /* v2: старые сохранения (сделанные до исправления нумерации полей)
    несовместимы — при загрузке игнорируются, партия начинается заново. */
 const STORE_KEY = 'sk100.game.v2';
-const TIME_MS = 1300;
-const MAX_DEPTH = 11;
 
-export interface GameApi {
-  start: Pos;
-  moves: Move[];
-  ply: number;
-  pos: Pos;
-  legal: Move[];
-  selected: number | null;
-  clickSquare: (n: number) => void;
-  lastMove: Move | null;
-  winner: Side | null;
-  mustCapture: boolean;
-  movableFroms: Set<number>;
-  goto: (ply: number) => void;
-  toStart: () => void;
-  toEnd: () => void;
-  prev: () => void;
-  next: () => void;
-  playFromTo: (from: number, to: number) => boolean;
-  newGame: () => void;
-  flipped: boolean;
-  toggleFlip: () => void;
-  showNums: boolean;
-  toggleNums: () => void;
-  auto: boolean;
-  setAuto: (v: boolean) => void;
-  fen: string;
-  headers: Record<string, string>;
-  loadFenText: (text: string) => string | null;
-  loadPDNText: (text: string) => string | null;
-  boardKey: string;
-  engine: EngineState;
-  tb: TbVerdict | null;
-  hint: string | null;
+export interface GameOptions {
+  engineDepth: number;
+  engineTime: number;
+  autoCapture: boolean;
+  captureDelay: number;
+  autoSingle: boolean;
 }
 
-export function useGame(): GameApi {
+export function useGame(opts: GameOptions) {
   const [state, setState] = useState(() => {
     try {
       const raw = localStorage.getItem(STORE_KEY);
@@ -140,7 +112,7 @@ export function useGame(): GameApi {
     return m.total <= 9 ? materialVerdict(m) : null;
   }, [pos]);
 
-  /* движок в отдельном потоке */
+  /* движок в отдельном потоке (глубина и время — из настроек) */
   const genRef = useRef(0);
   useEffect(() => {
     const gen = ++genRef.current;
@@ -151,7 +123,7 @@ export function useGame(): GameApi {
     setEngineState((e) => ({ ...IDLE, thinking: true, forKey: e.forKey }));
     const history = moves.slice(0, ply).map((m) => m.from * 100 + m.to);
     const handle: AnalyzeHandle = engine.analyze(
-      { fen, history, startFen, timeMs: TIME_MS, maxDepth: MAX_DEPTH },
+      { fen, history, startFen, timeMs: opts.engineTime, maxDepth: opts.engineDepth },
       (info) => {
         if (genRef.current !== gen) return;
         setEngineState((e) => (e.thinking ? { ...e, depth: info.depth, nodes: info.nodes, score: info.score } : e));
@@ -168,7 +140,7 @@ export function useGame(): GameApi {
     });
     return () => handle.cancel();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boardKey, fen, startFen, ply, legal.length]);
+  }, [boardKey, fen, startFen, ply, legal.length, opts.engineDepth, opts.engineTime]);
 
   /* сохранение */
   useEffect(() => {
@@ -213,6 +185,29 @@ export function useGame(): GameApi {
     return true;
   }, [legal]);
 
+  /* ----- авто-взятие -----
+     Обязательное взятие выполняется само (по правилу большинства —
+     варианты уже отфильтрованы ядром; из равных берём ход движка,
+     если он готов, иначе первый). Срабатывает только на «живом»
+     конце партии, чтобы не переписывать историю при просмотре. */
+  const engineRef = useRef(engineState);
+  engineRef.current = engineState;
+
+  useEffect(() => {
+    if (!opts.autoCapture || winner !== null || !mustCapture) return;
+    if (ply !== moves.length) return;
+    const t = window.setTimeout(() => {
+      const eng = engineRef.current;
+      let choice = legal[0];
+      if (eng.best && eng.forKey === boardKey) {
+        const byEngine = legal.find((m) => m.from === eng.best!.from && m.to === eng.best!.to);
+        if (byEngine) choice = byEngine;
+      }
+      if (choice) playFromTo(choice.from, choice.to);
+    }, opts.captureDelay);
+    return () => window.clearTimeout(t);
+  }, [opts.autoCapture, opts.captureDelay, boardKey, winner, mustCapture, ply, moves.length, legal, playFromTo]);
+
   const clickSquare = useCallback((n: number) => {
     if (winner !== null) return;
     if (selected !== null) {
@@ -220,12 +215,24 @@ export function useGame(): GameApi {
       const m = findMove(legal, selected, n);
       if (m) { playFromTo(selected, n); return; }
     }
-    if (movableFroms.has(n) && pos.b[n] * pos.side > 0) { setSelected(n); return; }
+    if (movableFroms.has(n) && pos.b[n] * pos.side > 0) {
+      /* авто-ход: у шашки единственный пункт назначения — ходим сразу */
+      if (opts.autoSingle) {
+        const mine = legal.filter((m) => m.from === n);
+        const dests = new Set(mine.map((m) => m.to));
+        if (mine.length > 0 && dests.size === 1) {
+          playFromTo(n, mine[0].to);
+          return;
+        }
+      }
+      setSelected(n);
+      return;
+    }
     if (mustCapture && pos.b[n] * pos.side > 0) {
       flashHint('Взятие обязательно — выберите шашку, которая бьёт');
     }
     setSelected(null);
-  }, [selected, legal, movableFroms, mustCapture, pos, winner, playFromTo, flashHint]);
+  }, [selected, legal, movableFroms, mustCapture, pos, winner, playFromTo, flashHint, opts.autoSingle]);
 
   const newGame = useCallback(() => {
     setSelected(null); setAuto(false);
@@ -263,3 +270,5 @@ export function useGame(): GameApi {
     engine: engineState, tb, hint,
   };
 }
+
+export type GameApi = ReturnType<typeof useGame>;

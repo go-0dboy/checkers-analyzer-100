@@ -1,13 +1,15 @@
 /* ============================================================
  * СтоКлетка — мобильный анализатор международных шашек
- * (100 клеток, ФМЖД). Движок работает в отдельном потоке.
+ * (100 клеток, правила ФМЖД). Доска, движок в отдельном потоке,
+ * база фигур, дебютная книга, настройки, FEN/PDN, темы.
  * ============================================================ */
 
 import {
   useEffect, useMemo, useRef, useState,
   type ReactNode, type SVGProps,
 } from 'react';
-import { useGame, type EngineState } from './state/useGame';
+import { useGame, type GameApi } from './state/useGame';
+import { useSettings, type Settings } from './state/settings';
 import {
   type Move, type Pos, type Side, WHITE, rc, sq, moveNotation, tempi,
 } from './engine/core';
@@ -39,9 +41,9 @@ const IBook = (p: IP) => <svg {...base(p)}><path d="M4 19.5A2.5 2.5 0 016.5 17H2
 const ICheck = (p: IP) => <svg {...base(p)}><path d="M4 12.5l5 5L20 6.5" /></svg>;
 const IWarn = (p: IP) => <svg {...base(p)}><path d="M12 3l10 18H2z" /><path d="M12 10v4M12 17.5v.5" /></svg>;
 const IPalette = (p: IP) => <svg {...base(p)}><circle cx="12" cy="12" r="9" /><circle cx="8" cy="9" r="1.4" fill="currentColor" stroke="none" /><circle cx="12" cy="7" r="1.4" fill="currentColor" stroke="none" /><circle cx="16" cy="9" r="1.4" fill="currentColor" stroke="none" /><path d="M12 21c1.8 0 2.5-1.2 1.6-2.4-.7-1-.2-2.6 1.4-2.6H17a4 4 0 004-4" /></svg>;
-const ICpu = (p: IP) => <svg {...base(p)}><rect x="6" y="6" width="12" height="12" rx="1.5" /><rect x="10" y="10" width="4" height="4" /><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" /></svg>;
+const IGear = (p: IP) => <svg {...base(p)}><circle cx="12" cy="12" r="3.2" /><path d="M19.4 15a1.7 1.7 0 00.34 1.87l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.7 1.7 0 00-1.87-.34 1.7 1.7 0 00-1 1.55V21a2 2 0 11-4 0v-.09a1.7 1.7 0 00-1-1.55 1.7 1.7 0 00-1.87.34l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.7 1.7 0 00.34-1.87 1.7 1.7 0 00-1.55-1H3a2 2 0 110-4h.09a1.7 1.7 0 001.55-1 1.7 1.7 0 00-.34-1.87l-.06-.06a2 2 0 112.83-2.83l.06.06a1.7 1.7 0 001.87.34h.08a1.7 1.7 0 001-1.55V3a2 2 0 114 0v.09a1.7 1.7 0 001 1.55 1.7 1.7 0 001.87-.34l.06-.06a2 2 0 112.83 2.83l-.06.06a1.7 1.7 0 00-.34 1.87v.08a1.7 1.7 0 001.55 1H21a2 2 0 110 4h-.09a1.7 1.7 0 00-1.55 1z" /></svg>;
 
-/* ================= мелкие блоки ================= */
+/* ================= мелкие блоки UI ================= */
 
 function TBtn({
   children, onClick, title, disabled, active, accent, className = '',
@@ -60,7 +62,7 @@ function TBtn({
           : accent
             ? 'border-acc/50 bg-acc/10 text-acc2 hover:bg-acc/20'
             : 'border-white/10 bg-white/[.04] text-body hover:bg-white/[.09]',
-        disabled ? 'cursor-not-allowed opacity-30' : 'active:scale-[.92]',
+        disabled ? 'cursor-not-allowed opacity-30' : 'active:scale-[.93]',
         className,
       ].join(' ')}
     >
@@ -78,18 +80,26 @@ function Dot({ color, pulse }: { color: string; pulse?: boolean }) {
   );
 }
 
-function Chip({ children, amber }: { children: ReactNode; amber?: boolean }) {
-  return <span className={`chip ${amber ? 'chip-amber' : ''}`}>{children}</span>;
+function Switch({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button" role="switch" aria-checked={on} onClick={() => onChange(!on)}
+      className={`relative h-[22px] w-10 shrink-0 rounded-full border transition-all duration-200 active:scale-95 ${
+        on ? 'border-acc/70 bg-acc/80 shadow-[0_0_10px_color-mix(in_oklab,var(--accent)_35%,transparent)]' : 'border-white/15 bg-white/[.08]'
+      }`}
+    >
+      <span
+        className={`absolute top-[2px] h-4 w-4 rounded-full shadow transition-all duration-200 ${
+          on ? 'left-[21px] bg-[#0d1416]' : 'left-[3px] bg-[#aab8b4]'
+        }`}
+      />
+    </button>
+  );
 }
 
-/* ================= выбор темы ================= */
-
-function ThemePicker() {
-  const [themeId, setThemeId] = useState<ThemeId>(() => initialTheme());
+function usePopover() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => { applyTheme(initialTheme()); }, []);
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: PointerEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
@@ -98,10 +108,19 @@ function ThemePicker() {
     document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('pointerdown', onDoc); document.removeEventListener('keydown', onKey); };
   }, [open]);
+  return { open, setOpen, ref };
+}
+
+/* ================= темы и настройки ================= */
+
+function ThemePicker() {
+  const [themeId, setThemeId] = useState<ThemeId>(() => initialTheme());
+  const { open, setOpen, ref } = usePopover();
+  useEffect(() => { applyTheme(initialTheme()); }, []);
 
   return (
     <div ref={ref} className="relative">
-      <TBtn title="Тема оформления" active={open} onClick={() => setOpen((v) => !v)} className="h-10 w-10 px-0">
+      <TBtn title="Тема оформления" active={open} onClick={() => setOpen(!open)} className="h-10 w-10 px-0">
         <IPalette size={17} />
       </TBtn>
       {open && (
@@ -118,10 +137,7 @@ function ThemePicker() {
                     active ? 'border-acc/70 bg-acc/10' : 'border-white/10 bg-white/[.03] hover:bg-white/[.07]'
                   }`}
                 >
-                  <div
-                    className="grid aspect-[5/2] w-full grid-cols-4 grid-rows-2 overflow-hidden rounded-md border border-black/40"
-                    style={{ background: t.preview.light }}
-                  >
+                  <div className="grid aspect-[5/2] w-full grid-cols-4 grid-rows-2 overflow-hidden rounded-md border border-black/40" style={{ background: t.preview.light }}>
                     {[1, 0, 1, 0, 0, 1, 0, 1].map((d, i) => (
                       <div key={i} style={{ background: d ? t.preview.dark : 'transparent' }} />
                     ))}
@@ -134,6 +150,83 @@ function ThemePicker() {
                 </button>
               );
             })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SettingsPopover({ s, set }: { s: Settings; set: <K extends keyof Settings>(k: K, v: Settings[K]) => void }) {
+  const { open, setOpen, ref } = usePopover();
+  const selectCls = 'rounded-md border border-white/12 bg-black/30 px-2 py-1.5 text-xs text-body outline-none transition-colors focus:border-acc/60';
+
+  return (
+    <div ref={ref} className="relative">
+      <TBtn title="Настройки" active={open} onClick={() => setOpen(!open)} className="h-10 w-10 px-0">
+        <IGear size={17} />
+      </TBtn>
+      {open && (
+        <div className="pop-in absolute right-0 top-12 z-50 w-[300px] rounded-xl border border-white/12 bg-pan/95 p-3 shadow-[0_18px_50px_rgba(0,0,0,.55)] backdrop-blur-md">
+          <div className="pb-2 font-display text-[10px] font-bold tracking-[.22em] text-dim">НАСТРОЙКИ</div>
+
+          <div className="flex flex-col gap-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-body">Стрелка лучшего хода</span>
+              <Switch on={s.showArrows} onChange={(v) => set('showArrows', v)} />
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-xs text-body">Авто-взятие</div>
+                <div className="text-[10px] leading-tight text-dim">обязательный бой выполняется сам</div>
+              </div>
+              <Switch on={s.autoCapture} onChange={(v) => set('autoCapture', v)} />
+            </div>
+            {s.autoCapture && (
+              <div className="rounded-lg border border-white/8 bg-black/20 px-3 py-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] uppercase tracking-wider text-dim">Темп авто-взятия</span>
+                  <span className="font-mono text-[11px] text-acc2">{(s.captureDelay / 1000).toFixed(1)} с</span>
+                </div>
+                <input
+                  type="range" min={200} max={2000} step={100} value={s.captureDelay}
+                  onChange={(e) => set('captureDelay', Number(e.target.value))}
+                  className="mt-1.5 w-full" style={{ accentColor: 'var(--accent)' }}
+                />
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-xs text-body">Авто-ход</div>
+                <div className="text-[10px] leading-tight text-dim">клик по шашке без выбора — ходит сразу, если вариант один</div>
+              </div>
+              <Switch on={s.autoSingle} onChange={(v) => set('autoSingle', v)} />
+            </div>
+
+            <div className="my-0.5 h-px bg-white/[.07]" />
+
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-body">Глубина анализа</span>
+              <select value={s.engineDepth} onChange={(e) => set('engineDepth', Number(e.target.value))} className={selectCls}>
+                {[4, 6, 8, 9, 10, 12].map((d) => <option key={d} value={d}>{d} полуходов</option>)}
+              </select>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-body">Время на ход</span>
+              <select value={s.engineTime} onChange={(e) => set('engineTime', Number(e.target.value))} className={selectCls}>
+                {[[500, '0,5 с'], [1000, '1 с'], [1500, '1,5 с'], [2000, '2 с'], [3000, '3 с'], [5000, '5 с']].map(([v, l]) => (
+                  <option key={v} value={v}>{l}</option>
+                ))}
+              </select>
+            </div>
+
+            <p className="mt-1 rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-[10px] leading-relaxed text-dim">
+              Готовые движки 100 клеток (Scan, KingsRow) — это C/C++ без публичных
+              WASM-сборок и открытых API анализа. Встроенный движок работает в отдельном
+              потоке по протоколу go / info / done — замена на Scan-WASM сводится к одному адаптеру.
+            </p>
           </div>
         </div>
       )}
@@ -155,13 +248,14 @@ function Crown() {
 }
 
 interface PieceInfo { n: number; color: Side; king: boolean; id: number; fresh: boolean }
-interface Pair { from: number; to: number }
 
 function BoardView({
   pos, legal, selected, lastMove, best, preview, flipped, showNums, winner, movableFroms, onSquare,
 }: {
   pos: Pos; legal: Move[]; selected: number | null; lastMove: Move | null;
-  best: Pair | null; preview: Pair | null; flipped: boolean; showNums: boolean;
+  best: { from: number; to: number; path: number[]; captures: number[] } | null;
+  preview: { from: number; to: number; path: number[]; captures: number[] } | null;
+  flipped: boolean; showNums: boolean;
   winner: Side | null; movableFroms: Set<number>; onSquare: (n: number) => void;
 }) {
   const prevInfo = useRef<Map<number, { id: number; color: Side }>>(new Map());
@@ -211,38 +305,53 @@ function BoardView({
     return s;
   }, [selMoves]);
 
-  const arrowPair = preview ?? best;
-  const arrowMove = useMemo(
-    () => (arrowPair ? legal.find((m) => m.from === arrowPair.from && m.to === arrowPair.to) ?? null : null),
-    [arrowPair, legal],
-  );
+  /* реальный размер доски в пикселях — стрелка масштабируется под экран */
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [px, setPx] = useState(320);
+  useEffect(() => {
+    const el = frameRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((es) => {
+      const w = es[0]?.contentRect.width ?? 0;
+      if (w > 0) setPx(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const arrowMove = preview ?? best;
   const arrow = useMemo(() => {
-    if (!arrowMove) return null;
-    const pts: [number, number][] = [];
-    for (const n of [arrowMove.from, ...arrowMove.path]) {
+    if (!arrowMove || px < 60) return null;
+    const cell = px / 10;
+    /* путь: для взятий — все промежуточные поля серии, для тихого хода — сразу цель */
+    const seq = arrowMove.captures.length > 0
+      ? [arrowMove.from, ...arrowMove.path]
+      : [arrowMove.from, arrowMove.to];
+    const raw: [number, number][] = seq.map((n) => {
       const [r, c] = rc(n);
       const rr = flipped ? 9 - r : r;
       const cc = flipped ? 9 - c : c;
-      const p: [number, number] = [cc * 10 + 5, rr * 10 + 5];
-      const last = pts[pts.length - 1];
-      if (last && last[0] === p[0] && last[1] === p[1]) continue;
-      pts.push(p);
-    }
-    if (pts.length >= 2) {
-      const a = pts[pts.length - 2]; const b = pts[pts.length - 1];
-      const dx = b[0] - a[0]; const dy = b[1] - a[1];
-      const len = Math.hypot(dx, dy) || 1;
-      pts[pts.length - 1] = [b[0] - (dx / len) * 2.2, b[1] - (dy / len) * 2.2];
-    }
+      return [(cc + 0.5) * cell, (rr + 0.5) * cell];
+    });
+    const pts = raw.filter((p, i) => i === 0 || p[0] !== raw[i - 1][0] || p[1] !== raw[i - 1][1]);
+    if (pts.length < 2) return null;
+    const sw = Math.max(2.5, px * 0.011);           /* толщина ~1.1% доски, мин 2.5px */
+    const a = pts[pts.length - 2]; const b = pts[pts.length - 1];
+    const dx = b[0] - a[0]; const dy = b[1] - a[1];
+    const len = Math.hypot(dx, dy) || 1;
+    pts[pts.length - 1] = [b[0] - (dx / len) * sw * 1.4, b[1] - (dy / len) * sw * 1.4];
     return {
-      d: pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(' '),
+      d: pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' '),
       caps: arrowMove.captures,
-      isCap: arrowMove.captures.length > 0,
+      sw,
+      head: sw * 3.4,
+      ring: Math.max(1.5, px * 0.005),
+      cell,
     };
-  }, [arrowMove, flipped]);
+  }, [arrowMove, flipped, px]);
 
   return (
-    <div className="board-frame relative aspect-square w-full overflow-hidden rounded-xl">
+    <div ref={frameRef} className={`board-frame relative aspect-square w-full overflow-hidden rounded-xl ${winner !== null ? 'saturate-[.7]' : ''}`}>
       {/* поля + координаты внутри доски */}
       <div className="absolute inset-0 grid grid-cols-10 grid-rows-10">
         {Array.from({ length: 100 }, (_, i) => {
@@ -257,15 +366,9 @@ function BoardView({
           const isSel = selected === n;
           return (
             <button key={n} type="button" onClick={() => onSquare(n)} className={`relative block h-full w-full ${dark ? 'sq-dark' : 'sq-light'}`}>
-              {dark && showNums && (
-                <span className="sq-num">{n}</span>
-              )}
-              {dark && showNums && sc === 0 && (
-                <span className="sq-coord">{10 - r}</span>
-              )}
-              {dark && showNums && sr === 9 && (
-                <span className="sq-coord sq-coord-file">{FILES[c]}</span>
-              )}
+              {dark && showNums && <span className="sq-num">{n}</span>}
+              {dark && showNums && sc === 0 && <span className="sq-coord">{10 - r}</span>}
+              {dark && showNums && sr === 9 && <span className="sq-coord sq-coord-file">{FILES[c]}</span>}
               {isLast && <span className="pointer-events-none absolute inset-0 bg-acc/20" />}
               {isSel && <span className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-acc" />}
               {destQuiet.has(n) && (
@@ -311,29 +414,44 @@ function BoardView({
         );
       })}
 
-      {/* стрелка лучшего хода / превью */}
+      {/* стрелка: координаты в пикселях доски — размер зависит от экрана */}
       {arrow && (
-        <svg key={(preview ? 'p' : 'b') + arrow.d} viewBox="0 0 100 100" className="pointer-events-none absolute inset-0 z-30 h-full w-full">
+        <svg
+          key={(preview ? 'p' : 'b') + arrow.d}
+          viewBox={`0 0 ${px} ${px}`}
+          className="pointer-events-none absolute inset-0 z-30 h-full w-full"
+        >
           <defs>
-            <marker id="ah" markerWidth="5" markerHeight="5" refX="2.6" refY="2.5" orient="auto">
-              <path d="M0,0 L5,2.5 L0,5 z" fill={preview ? '#7fc4a4' : 'var(--accent)'} />
+            <marker
+              id="ah" markerUnits="userSpaceOnUse"
+              markerWidth={arrow.head} markerHeight={arrow.head}
+              refX={arrow.head * 0.82} refY={arrow.head / 2} orient="auto"
+            >
+              <path
+                d={`M0,0 L${arrow.head},${arrow.head / 2} L0,${arrow.head} Z`}
+                fill={preview ? '#7fc4a4' : 'var(--accent)'}
+              />
             </marker>
           </defs>
           <path
             d={arrow.d} pathLength={1} fill="none"
             stroke={preview ? '#7fc4a4' : 'var(--accent)'}
             strokeOpacity={preview ? 0.85 : 0.95}
-            strokeWidth={arrow.isCap ? 2.6 : 2}
+            strokeWidth={arrow.sw}
             strokeLinecap="round" strokeLinejoin="round"
             markerEnd="url(#ah)" className="arrow-draw"
-            style={{ filter: `drop-shadow(0 0 3px ${preview ? 'rgba(127,196,164,.5)' : 'color-mix(in oklab, var(--accent) 45%, transparent)'})` }}
+            style={{ filter: `drop-shadow(0 0 ${Math.max(2, px * 0.006)}px ${preview ? 'rgba(127,196,164,.45)' : 'color-mix(in oklab, var(--accent) 45%, transparent)'})` }}
           />
           {arrow.caps.map((n) => {
             const [r, c] = rc(n);
             const rr = flipped ? 9 - r : r; const cc = flipped ? 9 - c : c;
             return (
-              <circle key={n} cx={cc * 10 + 5} cy={rr * 10 + 5} r={3.1}
-                fill="rgba(217,83,74,.18)" stroke="#d9534a" strokeWidth={0.8} className="arrow-draw-cap" />
+              <circle
+                key={n}
+                cx={(cc + 0.5) * arrow.cell} cy={(rr + 0.5) * arrow.cell} r={arrow.cell * 0.28}
+                fill="rgba(217,83,74,.16)" stroke="#d9534a" strokeWidth={arrow.ring}
+                className="arrow-draw-cap"
+              />
             );
           })}
         </svg>
@@ -341,7 +459,7 @@ function BoardView({
 
       {winner !== null && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#0a1214]/55 backdrop-blur-[2px]">
-          <div className="pop-in rounded-xl border border-acc/40 bg-pan/95 px-6 py-4 text-center shadow-[0_10px_40px_rgba(0,0,0,.5)]">
+          <div className="rounded-lg border border-acc/40 bg-pan/95 px-6 py-4 text-center shadow-[0_10px_40px_rgba(0,0,0,.5)]">
             <div className="font-display text-sm font-bold tracking-[.18em] text-acc2 sm:text-base">
               {winner === WHITE ? 'ПОБЕДА БЕЛЫХ' : 'ПОБЕДА ЧЁРНЫХ'}
             </div>
@@ -353,132 +471,119 @@ function BoardView({
   );
 }
 
-/* горизонтальная шкала материала под доской */
 function MaterialStrip({ pos }: { pos: Pos }) {
-  const { w, b } = useMemo(() => {
-    let w = 0; let b = 0;
+  const m = useMemo(() => {
+    let wm = 0; let wk = 0; let bm = 0; let bk = 0;
     for (let n = 1; n <= 50; n++) {
       const v = pos.b[n];
-      if (v === 1) w += 1; else if (v === -1) b += 1;
-      else if (v === 2) w += 3; else if (v === -2) b += 3;
+      if (v === 1) wm++; else if (v === 2) wk++;
+      else if (v === -1) bm++; else if (v === -2) bk++;
     }
-    return { w, b };
+    return { wm, wk, bm, bk };
   }, [pos]);
-  const total = w + b || 1;
+  const adv = (m.wm + 3 * m.wk) - (m.bm + 3 * m.bk);
+  const whitePct = Math.max(8, Math.min(92, 50 + adv * 6));
   return (
-    <div className="mt-2.5">
-      <div className="flex h-1.5 w-full overflow-hidden rounded-full border border-white/10 bg-[#10181b]">
-        <div className="eval-h-white" style={{ width: `${(w / total) * 100}%` }} />
-        <div className="flex-1" />
+    <div className="mt-2.5 flex items-center gap-2">
+      <span className="chip shrink-0">Б {m.wm}{m.wk > 0 ? `+${m.wk}Д` : ''}</span>
+      <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-[#141d20] ring-1 ring-white/[.07]">
+        <div className="eval-h-white absolute inset-y-0 left-0" style={{ width: `${whitePct}%` }} />
       </div>
-      <div className="mt-1 flex items-center justify-between font-mono text-[10px] text-dim">
-        <span>белые · {w}</span>
-        <span className="text-mut">материал (дамка = 3)</span>
-        <span>чёрные · {b}</span>
-      </div>
+      <span className="chip shrink-0">Ч {m.bm}{m.bk > 0 ? `+${m.bk}Д` : ''}</span>
     </div>
   );
 }
 
 /* ================= панель анализа ================= */
 
-function TbRow({ tb }: { tb: TbVerdict }) {
-  const label = tb.result === 1 ? 'выигрыш белых' : tb.result === -1 ? 'выигрыш чёрных' : 'ничья';
+function TbBlock({ tb }: { tb: TbVerdict }) {
+  const label = tb.result === 1 ? 'Выигрыш белых' : tb.result === -1 ? 'Выигрыш чёрных' : 'Ничья';
   const tone = tb.result === 0
     ? 'border-white/15 bg-white/[.05] text-body'
     : tb.result === 1
       ? 'border-[#5fb287]/45 bg-[#5fb287]/10 text-[#8ed0ae]'
       : 'border-[#d9534a]/45 bg-[#d9534a]/10 text-[#e5938b]';
   return (
-    <div className={`mt-3 flex items-center gap-2 rounded-lg border px-3 py-2 ${tone}`}>
-      <span className="chip chip-amber shrink-0">база фигур</span>
-      <span className="truncate text-xs font-semibold">{label}</span>
-      <span className="ml-auto hidden truncate pl-2 text-[10px] opacity-75 min-[400px]:block">{tb.note}</span>
+    <div className={`mt-2.5 flex items-center gap-2 rounded-lg border px-3 py-2 ${tone}`}>
+      <span className="chip chip-amber shrink-0">БАЗА ФИГУР</span>
+      <span className="min-w-0 truncate text-xs font-semibold">{label}</span>
+      <span className="ml-auto hidden truncate pl-2 text-[10px] opacity-80 min-[400px]:block">{tb.note}</span>
     </div>
   );
 }
 
 function AnalysisPanel({
-  engine, boardKey, side, b, tb, onPlay, onHover,
+  game, onPlay, onHover,
 }: {
-  engine: EngineState; boardKey: string; side: Side; b: Int8Array;
-  tb: TbVerdict | null; onPlay: (p: Pair) => void; onHover: (p: Pair | null) => void;
+  game: GameApi;
+  onPlay: (m: Move) => void;
+  onHover: (m: { from: number; to: number; captures: number[]; path: number[] } | null) => void;
 }) {
+  const { engine, boardKey, pos, tb } = game;
   const stale = engine.forKey !== boardKey;
   const thinking = engine.thinking || stale;
+  const side = pos.side;
   const whiteScore = engine.score !== null ? engine.score * side : null;
-  const t = tempi(b);
-  const isBook = !!engine.book && !stale;
+  const t = tempi(pos.b);
 
-  const scoreText = whiteScore === null ? (isBook ? 'книга' : '—')
-    : engine.mate ? (whiteScore > 0 ? 'мат · б' : 'мат · ч')
+  const scoreText = whiteScore === null ? '—'
+    : engine.mate ? (whiteScore > 0 ? 'мат · белые' : 'мат · чёрные')
       : `${whiteScore / 100 > 0 ? '+' : ''}${(whiteScore / 100).toFixed(2)}`;
 
-  const verdict = isBook ? `дебютная книга · ${engine.book}`
-    : whiteScore === null ? 'расчёт позиции…'
-      : engine.mate ? 'форсированный выигрыш'
-        : Math.abs(whiteScore) < 15 ? 'равная позиция'
-          : Math.abs(whiteScore) < 60 ? 'небольшой перевес'
-            : Math.abs(whiteScore) < 160 ? 'заметный перевес' : 'решающий перевес';
+  const verdict = whiteScore === null ? 'расчёт позиции…'
+    : engine.mate ? 'форсированный выигрыш'
+      : Math.abs(whiteScore) < 15 ? 'равная позиция'
+        : Math.abs(whiteScore) < 60 ? 'небольшой перевес'
+          : Math.abs(whiteScore) < 160 ? 'заметный перевес' : 'решающий перевес';
 
-  const materialChip = whiteScore !== null && !engine.mate && Math.abs(whiteScore) >= 100
-    ? `${whiteScore > 0 ? '+' : '−'}${Math.floor(Math.abs(whiteScore) / 100)} шаш.` : null;
+  const legal = game.legal;
+  const resolve = (c: { from: number; to: number }): Move | null =>
+    legal.find((m) => m.from === c.from && m.to === c.to) ?? null;
 
-  const topScore = engine.candidates[0]?.score ?? null;
+  const bestFull = engine.best ? resolve(engine.best) : null;
 
   return (
     <section className="panel p-3.5 sm:p-4" onMouseLeave={() => onHover(null)}>
-      <header className="mb-2 flex items-center justify-between gap-2">
-        <h2 className="flex items-center gap-1.5 font-display text-[10px] font-bold tracking-[.22em] text-mut">
-          <ICpu size={13} className="text-acc2" />АНАЛИЗ
-        </h2>
+      <header className="mb-2.5 flex items-center justify-between gap-2">
+        <h2 className="font-display text-[10px] font-bold tracking-[.22em] text-mut">АНАЛИЗ</h2>
         <span className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[.04] px-2.5 py-1 text-[10px] text-mut">
           <Dot color={thinking ? 'var(--accent)' : '#5fb287'} pulse={thinking} />
-          {thinking ? `счёт · d${engine.depth || '…'}` : isBook ? 'книга' : `готово · d${engine.depth}`}
+          {thinking ? `счёт · d${engine.depth || '…'}` : `готово · d${engine.depth}`}
         </span>
       </header>
 
       <div className="flex items-end justify-between gap-3">
-        <div className="min-w-0">
-          <div className={`font-mono text-[2rem] font-bold leading-none tabular-nums sm:text-[2.4rem] ${
-            whiteScore === null ? 'text-acc2' : whiteScore > 10 ? 'text-ink' : whiteScore < -10 ? 'text-mut' : 'text-body'
+        <div>
+          <div className={`font-mono text-[2.1rem] font-bold leading-none tabular-nums sm:text-[2.5rem] ${
+            whiteScore === null ? 'text-dim' : whiteScore > 10 ? 'text-ink' : whiteScore < -10 ? 'text-mut' : 'text-body'
           } ${thinking ? 'score-thinking' : ''}`}>
             {scoreText}
           </div>
-          <div className="mt-1 truncate text-[11px] text-mut">{verdict}</div>
+          <div className="mt-1 text-[11px] text-mut">
+            {verdict}{whiteScore !== null && !engine.mate ? ` · ${whiteScore >= 0 ? 'белые' : 'чёрные'}` : ''}
+          </div>
         </div>
         <div className="flex flex-col items-end gap-1">
-          {!thinking && engine.nodes > 0 && (
-            <>
-              <Chip>{engine.nodes >= 1000 ? `${(engine.nodes / 1000).toFixed(0)}k узлов` : `${engine.nodes} узлов`}</Chip>
-              <Chip>{((engine.nps || 0) / 1000).toFixed(0)}kN/s · {engine.ms}мс</Chip>
-            </>
-          )}
-          <Chip>темпы {t > 0 ? `+${t}` : t}</Chip>
-          {materialChip && <Chip amber>{materialChip}</Chip>}
+          <span className="chip">{engine.nodes ? `${(engine.nodes / 1000).toFixed(0)}k узлов` : '—'}</span>
+          <span className="chip">{engine.nps ? `${(engine.nps / 1000).toFixed(0)}kN/s` : '—'} · {engine.ms || '—'} мс</span>
+          <span className="chip">темпы {t > 0 ? `+${t}` : t}</span>
         </div>
       </div>
 
-      {thinking && (
-        <div className="mt-2.5 h-0.5 overflow-hidden rounded-full bg-white/[.07]">
-          <div className="shimmer h-full w-full" />
-        </div>
+      {thinking && <div className="shimmer mt-2.5 h-1 rounded-full" />}
+      {engine.book && !stale && (
+        <div className="mt-2.5"><span className="chip chip-amber">ДЕБЮТНАЯ КНИГА · {engine.book}</span></div>
       )}
+      {tb && <TbBlock tb={tb} />}
 
-      {tb && <TbRow tb={tb} />}
-
-      {engine.best && !stale ? (
+      {bestFull && !stale ? (
         <button
-          type="button" onClick={() => onPlay(engine.best!)}
+          type="button" onClick={() => onPlay(bestFull)}
           className="group mt-3 flex w-full items-center justify-between rounded-lg border border-acc/40 bg-acc/10 px-4 py-3 text-left transition-all duration-150 hover:border-acc/80 hover:bg-acc/18 active:scale-[.98]"
         >
           <span>
-            <span className="block text-[9px] font-semibold uppercase tracking-[.18em] text-acc">
-              {isBook ? `Лучший ход · ${engine.book}` : 'Лучший ход'}
-            </span>
-            <span className="font-mono text-xl font-bold text-acc2 sm:text-2xl">
-              {engine.best.from}→{engine.best.to}
-            </span>
+            <span className="block text-[9px] font-semibold uppercase tracking-[.18em] text-acc">Лучший ход</span>
+            <span className="font-mono text-xl font-bold text-acc2 sm:text-2xl">{moveNotation(bestFull)}</span>
           </span>
           <span className="rounded-lg border border-acc/50 px-3 py-2 text-xs font-semibold text-acc2 group-hover:bg-acc/20">
             сыграть →
@@ -496,28 +601,24 @@ function AnalysisPanel({
           <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-[.18em] text-dim">
             Кандидаты · касание — ход, наведение — стрелка
           </div>
-          <ul className="overflow-hidden rounded-lg border border-white/10">
+          <ul className="divide-y divide-white/[.06] overflow-hidden rounded-lg border border-white/10">
             {engine.candidates.map((c, i) => {
+              const full = resolve(c);
               const s = (c.score * side) / 100;
-              const share = topScore !== null && topScore !== c.score
-                ? Math.max(0.08, (c.score - (topScore - 400)) / 400)
-                : 1;
               return (
-                <li key={`${c.from}-${c.to}-${i}`} className="border-t border-white/[.05] first:border-t-0">
+                <li key={`${c.from}-${c.to}-${i}`}>
                   <button
                     type="button"
-                    onMouseEnter={() => onHover({ from: c.from, to: c.to })}
-                    onFocus={() => onHover({ from: c.from, to: c.to })}
-                    onClick={() => onPlay({ from: c.from, to: c.to })}
-                    className="relative flex w-full items-center gap-2.5 overflow-hidden bg-white/[.02] px-3 py-2.5 text-left transition-colors hover:bg-acc/10 active:bg-acc/20"
+                    onMouseEnter={() => full && onHover(full)} onFocus={() => full && onHover(full)}
+                    onClick={() => full && onPlay(full)}
+                    className="flex w-full items-center gap-2.5 bg-white/[.02] px-3 py-2.5 text-left transition-colors hover:bg-acc/10 active:bg-acc/20"
                   >
-                    <span className="absolute inset-y-0 left-0 bg-acc/[.07]" style={{ width: `${share * 100}%` }} />
-                    <span className="relative w-4 font-mono text-[11px] text-dim">{i + 1}</span>
-                    <span className="relative font-mono text-base font-semibold text-ink">{c.from}{c.caps > 0 ? 'x' : '–'}{c.to}</span>
+                    <span className="w-4 font-mono text-[11px] text-dim">{i + 1}</span>
+                    <span className="font-mono text-base font-semibold text-ink">{c.from}{c.caps > 0 ? 'x' : '-'}{c.to}</span>
                     {c.caps > 0 && (
-                      <span className="relative rounded bg-[#d9534a]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#e58a82]">×{c.caps}</span>
+                      <span className="rounded bg-[#d9534a]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#e58a82]">×{c.caps}</span>
                     )}
-                    <span className={`relative ml-auto font-mono text-xs tabular-nums ${s >= 0 ? 'text-[#8ed0ae]' : 'text-[#c9a0a0]'}`}>
+                    <span className={`ml-auto font-mono text-xs tabular-nums ${s >= 0 ? 'text-[#8ed0ae]' : 'text-[#c9a0a0]'}`}>
                       {s > 0 ? '+' : ''}{s.toFixed(2)}
                     </span>
                   </button>
@@ -535,7 +636,7 @@ function AnalysisPanel({
             {engine.pv.map((m, i) => (
               <span key={i}>
                 <span className="text-dim">{Math.floor(i / 2) + 1}{i % 2 === 0 ? '.' : '…'}</span>{' '}
-                <span className={i === 0 ? 'text-acc2' : ''}>{m.from}–{m.to}</span>{' '}
+                <span className={i === 0 ? 'text-acc2' : ''}>{m.from}-{m.to}</span>{' '}
               </span>
             ))}
           </div>
@@ -545,9 +646,9 @@ function AnalysisPanel({
   );
 }
 
-/* ================= партия ================= */
+/* ================= лента ходов ================= */
 
-function MovesPanel({ game }: { game: ReturnType<typeof useGame> }) {
+function MovesPanel({ game }: { game: GameApi }) {
   const { moves, ply, goto } = game;
   const activeRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => { activeRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [ply]);
@@ -563,7 +664,7 @@ function MovesPanel({ game }: { game: ReturnType<typeof useGame> }) {
         <h2 className="font-display text-[10px] font-bold tracking-[.22em] text-mut">ПАРТИЯ</h2>
         <span className="font-mono text-[11px] text-dim">ход {ply}/{moves.length}</span>
       </div>
-      <div className="mt-2 max-h-[46vh] overflow-y-auto rounded-lg border border-white/10 scroll-slim min-[760px]:max-h-[52vh]">
+      <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-white/10 scroll-slim sm:max-h-80">
         <button
           type="button" ref={ply === 0 ? activeRef : undefined} onClick={() => goto(0)}
           className={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-white/[.06] ${ply === 0 ? 'bg-acc/12' : ''}`}
@@ -592,7 +693,7 @@ function MovesPanel({ game }: { game: ReturnType<typeof useGame> }) {
         ))}
         {moves.length === 0 && (
           <div className="px-3 py-5 text-center text-xs text-dim">
-            Ходов пока нет — играйте на доске или загрузите партию во вкладке «Форматы».
+            Ходов пока нет — делайте ходы на доске или загрузите партию во вкладке «Форматы».
           </div>
         )}
       </div>
@@ -605,7 +706,7 @@ function MovesPanel({ game }: { game: ReturnType<typeof useGame> }) {
 
 /* ================= форматы ================= */
 
-function FormatsPanel({ game }: { game: ReturnType<typeof useGame> }) {
+function FormatsPanel({ game }: { game: GameApi }) {
   const { fen, moves, headers, loadFenText, loadPDNText } = game;
   const [fenInput, setFenInput] = useState('');
   const [pdnInput, setPdnInput] = useState('');
@@ -628,15 +729,11 @@ function FormatsPanel({ game }: { game: ReturnType<typeof useGame> }) {
     URL.revokeObjectURL(url);
     setMsg({ kind: 'ok', text: 'partiya.pdn сохранён' });
   };
-  const loadFen = () => {
-    const err = loadFenText(fenInput);
-    setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: 'Позиция из FEN загружена' });
-  };
 
   return (
     <div className="flex flex-col gap-3.5">
       {msg && (
-        <div className={`pop-in flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
+        <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
           msg.kind === 'ok' ? 'border-[#5fb287]/40 bg-[#5fb287]/10 text-[#8ed0ae]' : 'border-[#d9534a]/40 bg-[#d9534a]/10 text-[#e5938b]'}`}>
           {msg.kind === 'ok' ? <ICheck size={14} /> : <IWarn size={14} />}
           {msg.text}
@@ -645,7 +742,7 @@ function FormatsPanel({ game }: { game: ReturnType<typeof useGame> }) {
       <section className="panel p-3.5 sm:p-4">
         <header className="mb-2 flex items-center justify-between">
           <h2 className="font-display text-[10px] font-bold tracking-[.22em] text-mut">FEN ПОЗИЦИИ</h2>
-          <Chip>Liens</Chip>
+          <span className="chip">Liens</span>
         </header>
         <div className="flex gap-1.5">
           <input value={fen} readOnly spellCheck={false}
@@ -655,11 +752,21 @@ function FormatsPanel({ game }: { game: ReturnType<typeof useGame> }) {
           </TBtn>
         </div>
         <div className="mt-2 flex gap-1.5">
-          <input value={fenInput} onChange={(e) => setFenInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') loadFen(); }}
-            placeholder="W:W31-50:B1-20  ·  B:WK48,44:BK25" spellCheck={false}
-            className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/25 px-3 py-2.5 font-mono text-xs text-ink outline-none transition-colors placeholder:text-dim focus:border-acc/60" />
-          <TBtn title="Загрузить позицию" accent onClick={loadFen} className="shrink-0">
+          <input
+            value={fenInput} onChange={(e) => setFenInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                const err = loadFenText(fenInput);
+                setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: 'Позиция загружена' });
+              }
+            }}
+            placeholder="W:W31-50:B1-20" spellCheck={false}
+            className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/25 px-3 py-2.5 font-mono text-xs text-ink outline-none transition-colors placeholder:text-dim focus:border-acc/60"
+          />
+          <TBtn title="Загрузить позицию" accent onClick={() => {
+            const err = loadFenText(fenInput);
+            setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: 'Позиция из FEN загружена' });
+          }} className="shrink-0">
             <ILoad size={15} />
           </TBtn>
         </div>
@@ -671,7 +778,7 @@ function FormatsPanel({ game }: { game: ReturnType<typeof useGame> }) {
       <section className="panel p-3.5 sm:p-4">
         <header className="mb-2 flex items-center justify-between">
           <h2 className="font-display text-[10px] font-bold tracking-[.22em] text-mut">ПАРТИЯ · PDN</h2>
-          <Chip>{moves.length} полуходов</Chip>
+          <span className="chip">{moves.length} полуходов</span>
         </header>
         <textarea value={pdnInput} onChange={(e) => setPdnInput(e.target.value)} rows={6} spellCheck={false}
           placeholder={'Вставьте партию в PDN:\n1.32-28 19-23 2.28x19 14x23 ...'}
@@ -705,6 +812,7 @@ function FormatsPanel({ game }: { game: ReturnType<typeof useGame> }) {
 /* ================= приложение ================= */
 
 type Tab = 'analysis' | 'game' | 'formats';
+
 const TABS: { id: Tab; label: string }[] = [
   { id: 'analysis', label: 'Анализ' },
   { id: 'game', label: 'Партия' },
@@ -729,140 +837,148 @@ function Logo() {
 }
 
 export default function App() {
-  const game = useGame();
+  const { s, set } = useSettings();
+  const game = useGame({
+    engineDepth: s.engineDepth,
+    engineTime: s.engineTime,
+    autoCapture: s.autoCapture,
+    captureDelay: s.captureDelay,
+    autoSingle: s.autoSingle,
+  });
+  const g = game;
+
   const [tab, setTab] = useState<Tab>('analysis');
-  const [preview, setPreview] = useState<{ from: number; to: number } | null>(null);
-  const gameRef = useRef(game);
-  gameRef.current = game;
+  const [preview, setPreview] = useState<{ from: number; to: number; captures: number[]; path: number[] } | null>(null);
+  const gameRef = useRef(g);
+  gameRef.current = g;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
-      const g = gameRef.current;
-      if (e.key === 'ArrowLeft') { e.preventDefault(); g.prev(); }
-      else if (e.key === 'ArrowRight') { e.preventDefault(); g.next(); }
-      else if (e.key === 'Home') { e.preventDefault(); g.toStart(); }
-      else if (e.key === 'End') { e.preventDefault(); g.toEnd(); }
+      const gg = gameRef.current;
+      if (e.key === 'ArrowLeft') { e.preventDefault(); gg.prev(); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); gg.next(); }
+      else if (e.key === 'Home') { e.preventDefault(); gg.toStart(); }
+      else if (e.key === 'End') { e.preventDefault(); gg.toEnd(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const engineReady = game.engine.forKey === game.boardKey;
-  const best = engineReady ? game.engine.best : null;
-  const g = game;
+  const engineReady = g.engine.forKey === g.boardKey;
+  const bestFull = useMemo(() => {
+    if (!engineReady || !g.engine.best) return null;
+    const b = g.engine.best;
+    return g.legal.find((m) => m.from === b.from && m.to === b.to) ?? null;
+  }, [engineReady, g.engine.best, g.legal]);
+  const best = s.showArrows ? bestFull : null;
 
   return (
     <div className="min-h-dvh">
       {/* шапка */}
-      <header className="relative z-50 border-b border-white/[.07] bg-pan/85 backdrop-blur-md">
-        <div className="mx-auto flex max-w-[1080px] items-center gap-2.5 px-3 py-2.5 sm:gap-3 sm:px-4">
+      <header className="relative z-50 border-b border-white/[.07] bg-pan/80 backdrop-blur-sm">
+        <div className="mx-auto flex max-w-[1120px] items-center gap-2.5 px-3 py-2.5 sm:gap-3 sm:px-4">
           <Logo />
           <div className="min-w-0">
             <h1 className="font-display text-[13px] font-black leading-none tracking-[.12em] text-ink sm:text-base">
               СТО<span className="text-acc2">КЛЕТКА</span>
             </h1>
-            <p className="mt-0.5 truncate text-[10px] leading-none text-dim">шашки 100 · правила ФМЖД</p>
+            <p className="mt-0.5 truncate text-[10px] leading-none text-dim">шашки 100 · ФМЖД</p>
           </div>
-          <div className="ml-auto hidden items-center gap-2 rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5 md:flex">
+          <div className="ml-auto hidden items-center gap-2 rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5 lg:flex">
             <Dot color={g.engine.thinking ? 'var(--accent)' : '#5fb287'} pulse={g.engine.thinking} />
             <span className="font-mono text-[11px] text-mut">
-              движок · поток №2{g.engine.thinking ? ` · d${g.engine.depth || 1}…` : g.engine.depth ? ` · d${g.engine.depth}` : ''}
+              движок α-β{g.engine.thinking ? ` · d${g.engine.depth || 1}…` : g.engine.depth ? ` · d${g.engine.depth}` : ''}
             </span>
           </div>
-          <div className="ml-auto md:ml-0"><ThemePicker /></div>
+          <div className="ml-auto flex items-center gap-1.5 lg:ml-0">
+            <SettingsPopover s={s} set={set} />
+            <ThemePicker />
+          </div>
         </div>
       </header>
 
-      <main className="mx-auto grid max-w-[1080px] gap-4 px-3 py-4 min-[760px]:grid-cols-[minmax(0,1fr)_360px] min-[760px]:gap-5 min-[1024px]:grid-cols-[minmax(0,1fr)_392px]">
-        {/* доска + пульт */}
+      <main className="mx-auto grid max-w-[1120px] gap-5 px-3 py-4 min-[880px]:grid-cols-[minmax(0,1fr)_370px] min-[880px]:gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
+        {/* левая колонка: доска + пульт */}
         <div className="min-w-0">
-          <div className="mx-auto w-full max-w-[560px] min-[760px]:max-w-none">
+          <div className="mx-auto max-w-[560px] min-[880px]:max-w-[520px] min-[1024px]:max-w-[560px]">
             <BoardView
               pos={g.pos} legal={g.legal} selected={g.selected} lastMove={g.lastMove}
-              best={best} preview={preview} flipped={g.flipped} showNums={g.showNums}
+              best={best} preview={s.showArrows ? preview : null}
+              flipped={g.flipped} showNums={g.showNums}
               winner={g.winner} movableFroms={g.movableFroms} onSquare={g.clickSquare}
             />
             <MaterialStrip pos={g.pos} />
           </div>
 
-          <div className="mx-auto mt-3 w-full max-w-[560px] min-[760px]:mt-4 min-[760px]:max-w-none">
-            <section className="panel p-2.5 sm:p-3">
-              {/* статус */}
-              <div className="flex flex-wrap items-center gap-1.5 px-1">
-                <span className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-all duration-300 ${
-                  !g.winner && g.pos.side === WHITE ? 'border-acc/60 bg-acc/12 text-acc2' : 'border-white/10 bg-white/[.03] text-dim'}`}>
-                  <span className="h-2 w-2 rounded-full bg-ink" />Белые
-                </span>
-                <span className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-all duration-300 ${
-                  !g.winner && g.pos.side !== WHITE ? 'border-acc/60 bg-acc/12 text-acc2' : 'border-white/10 bg-white/[.03] text-dim'}`}>
-                  <span className="h-2 w-2 rounded-full bg-[#15181c] shadow-[0_0_0_1px_rgba(255,255,255,.3)]" />Чёрные
-                </span>
-                <span className="ml-auto font-mono text-[10px] text-dim">
-                  {g.winner !== null ? 'партия окончена' : `ход ${g.pos.side === WHITE ? 'белых' : 'чёрных'}`}
-                </span>
-              </div>
+          <div className="mx-auto mt-4 max-w-[560px]">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-all duration-300 ${
+                !g.winner && g.pos.side === WHITE ? 'border-acc/60 bg-acc/12 text-acc2' : 'border-white/10 bg-white/[.03] text-dim'}`}>
+                <span className="h-2 w-2 rounded-full bg-ink" />Белые
+              </span>
+              <span className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-all duration-300 ${
+                !g.winner && g.pos.side !== WHITE ? 'border-acc/60 bg-acc/12 text-acc2' : 'border-white/10 bg-white/[.03] text-dim'}`}>
+                <span className="h-2 w-2 rounded-full bg-[#15181c] shadow-[0_0_0_1px_rgba(255,255,255,.3)]" />Чёрные
+              </span>
+              <span className="ml-auto font-mono text-[10px] text-dim">
+                {g.winner !== null ? 'партия окончена' : `ход ${g.pos.side === WHITE ? 'белых' : 'чёрных'}`}
+              </span>
+            </div>
 
-              {g.mustCapture && g.winner === null && (
-                <div className="dest-pulse mx-1 mt-2 flex items-center gap-1.5 rounded-lg border border-[#d9534a]/50 bg-[#d9534a]/12 px-3 py-1.5 text-[11px] font-bold tracking-wide text-[#e58a82]">
-                  <IWarn size={13} />ВЗЯТИЕ ОБЯЗАТЕЛЬНО
-                </div>
-              )}
-
-              {/* навигация */}
-              <div className="mt-2 flex items-center gap-1.5">
-                <TBtn title="В начало" onClick={g.toStart} disabled={g.ply === 0} className="h-11 flex-1"><IFirst /></TBtn>
-                <TBtn title="Назад" onClick={g.prev} disabled={g.ply === 0} className="h-11 flex-1"><IPrev /></TBtn>
-                <TBtn
-                  title={g.auto ? 'Пауза' : 'Автопроигрывание'} accent active={g.auto}
-                  onClick={() => g.setAuto(!g.auto)} disabled={g.moves.length === 0}
-                  className="h-11 flex-1"
-                >
-                  {g.auto ? <IPause /> : <IPlay />}
-                </TBtn>
-                <TBtn title="Вперёд" onClick={g.next} disabled={g.ply >= g.moves.length} className="h-11 flex-1"><INext /></TBtn>
-                <TBtn title="В конец" onClick={g.toEnd} disabled={g.ply >= g.moves.length} className="h-11 flex-1"><ILast /></TBtn>
-                <span className="mx-0.5 h-7 w-px shrink-0 bg-white/10" />
-                <TBtn title="Перевернуть доску" onClick={g.toggleFlip} active={g.flipped} className="h-11 w-11 shrink-0 px-0"><IFlip /></TBtn>
-                <TBtn title="Нумерация полей" onClick={g.toggleNums} active={g.showNums} className="h-11 w-11 shrink-0 px-0"><IHash /></TBtn>
-                <TBtn title="Новая партия" onClick={g.newGame} className="h-11 w-11 shrink-0 px-0"><IPlus /></TBtn>
+            {g.mustCapture && g.winner === null && (
+              <div className={`mt-2 flex items-center gap-1.5 rounded-lg border border-[#d9534a]/50 bg-[#d9534a]/12 px-3 py-1.5 text-[11px] font-bold tracking-wide text-[#e58a82] ${s.autoCapture ? '' : 'dest-pulse'}`}>
+                <IWarn size={13} />{s.autoCapture ? 'ВЗЯТИЕ ОБЯЗАТЕЛЬНО · АВТО' : 'ВЗЯТИЕ ОБЯЗАТЕЛЬНО'}
               </div>
-            </section>
+            )}
+
+            <div className="mt-2.5 flex items-center gap-1.5">
+              <TBtn title="В начало" onClick={g.toStart} disabled={g.ply === 0} className="h-12 flex-1"><IFirst /></TBtn>
+              <TBtn title="Назад" onClick={g.prev} disabled={g.ply === 0} className="h-12 flex-1"><IPrev /></TBtn>
+              <TBtn
+                title={g.auto ? 'Пауза' : 'Автопроигрывание'} accent active={g.auto}
+                onClick={() => g.setAuto(!g.auto)} disabled={g.moves.length === 0}
+                className="h-12 flex-1"
+              >
+                {g.auto ? <IPause /> : <IPlay />}
+              </TBtn>
+              <TBtn title="Вперёд" onClick={g.next} disabled={g.ply >= g.moves.length} className="h-12 flex-1"><INext /></TBtn>
+              <TBtn title="В конец" onClick={g.toEnd} disabled={g.ply >= g.moves.length} className="h-12 flex-1"><ILast /></TBtn>
+              <span className="mx-0.5 hidden h-7 w-px bg-white/10 sm:block" />
+              <TBtn title="Перевернуть доску" onClick={g.toggleFlip} active={g.flipped} className="h-12 w-11 px-0"><IFlip /></TBtn>
+              <TBtn title="Нумерация полей" onClick={g.toggleNums} active={g.showNums} className="h-12 w-11 px-0"><IHash /></TBtn>
+              <TBtn title="Новая партия" onClick={g.newGame} className="h-12 w-11 px-0"><IPlus /></TBtn>
+            </div>
           </div>
         </div>
 
-        {/* вкладки + панели */}
+        {/* правая колонка */}
         <div className="flex min-w-0 flex-col gap-3.5">
           <nav className="grid grid-cols-3 rounded-xl border border-white/10 bg-white/[.03] p-1">
             {TABS.map((t) => (
               <button key={t.id} type="button" onClick={() => setTab(t.id)}
-                className={`rounded-lg px-2 py-2.5 font-display text-[11px] font-bold tracking-[.08em] transition-all duration-150 active:scale-[.97] ${
+                className={`rounded-lg px-2 py-2.5 text-xs font-semibold transition-all duration-150 active:scale-[.97] ${
                   tab === t.id
                     ? 'bg-acc/15 text-acc2 shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--accent)_35%,transparent)]'
                     : 'text-mut hover:bg-white/[.05] hover:text-body'}`}>
-                {t.label.toUpperCase()}
+                {t.label}
               </button>
             ))}
           </nav>
 
-          {tab === 'analysis' && (
-            <AnalysisPanel
-              engine={g.engine} boardKey={g.boardKey} side={g.pos.side} b={g.pos.b} tb={g.tb}
-              onPlay={(p) => g.playFromTo(p.from, p.to)} onHover={setPreview}
-            />
-          )}
+          {tab === 'analysis' && <AnalysisPanel game={g} onPlay={(m) => g.playFromTo(m.from, m.to)} onHover={setPreview} />}
           {tab === 'game' && <MovesPanel game={g} />}
           {tab === 'formats' && <FormatsPanel game={g} />}
         </div>
       </main>
 
       <footer className="border-t border-white/[.06] pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4">
-        <div className="mx-auto flex max-w-[1080px] flex-wrap items-center gap-x-3 gap-y-1 px-3 text-[10px] text-dim sm:px-4">
+        <div className="mx-auto flex max-w-[1120px] flex-wrap items-center gap-x-3 gap-y-1 px-3 text-[10px] text-dim sm:px-4">
           <span className="font-display font-bold tracking-[.14em]">СТОКЛЕТКА</span>
-          <span>летающие дамки · взятие большинства</span>
-          <span>движок в отдельном потоке</span>
-          <span>дебютная книга · база фигур</span>
+          <span>правила ФМЖД</span>
+          <span>движок α-β · отдельный поток</span>
+          <span>база фигур · книга</span>
           <span className="ml-auto font-mono">FEN · PDN</span>
         </div>
       </footer>
