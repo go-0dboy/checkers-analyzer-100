@@ -25,7 +25,7 @@ Vite 6 · React 18 · TypeScript 5 · Tailwind CSS 4 · Capacitor 7 (Android)
 | Компонент   | Версия                |
 |-------------|-----------------------|
 | **Node.js** | **≥ 22** (см. `.nvmrc`) |
-| JDK         | 17 (только для сборки APK) |
+| JDK         | **21** (требование Capacitor 7; только для сборки APK) |
 | Android SDK | любой современный (только для локальной сборки APK) |
 
 ## Быстрый старт
@@ -66,7 +66,7 @@ Workflow `.github/workflows/build-apk.yml` собирает нативный And
 | ручной запуск              | вкладка Actions → «Android APK» → Run workflow |
 
 Конвейер: Node **22** (`setup-node`) → `npm ci` → `typecheck` → `vite build` →
-`npx cap add/sync android` → JDK 17 → Gradle `assembleDebug`/`assembleRelease`.
+`npx cap add/sync android` → JDK 21 → Gradle `assembleDebug`/`assembleRelease`.
 
 Папку `android/` коммитить **не обязательно** — при её отсутствии CI создаёт
 нативный шаблон командой `npx cap add android`. Если хотите управлять

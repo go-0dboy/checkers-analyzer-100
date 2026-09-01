@@ -67,7 +67,7 @@ const STEPS = [
   },
   {
     title: '6 · APK из git — уже подключено',
-    text: 'В репозитории настроен GitHub Actions (.github/workflows/build-apk.yml): пуш в main или тег v* собирает нативный Android-APK через Capacitor на Node 22 + JDK 17. Debug — всегда, подписанный release — из секретов, теги автоматически попадают в GitHub Release. Локально — bash scripts/build-apk.sh.',
+    text: 'В репозитории настроен GitHub Actions (.github/workflows/build-apk.yml): пуш в main или тег v* собирает нативный Android-APK через Capacitor на Node 22 + JDK 21 (требование Capacitor 7). Debug — всегда, подписанный release — из секретов, теги автоматически попадают в GitHub Release. Локально — bash scripts/build-apk.sh.',
   },
 ];
 

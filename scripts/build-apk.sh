@@ -2,7 +2,7 @@
 # ============================================================
 # Локальная сборка Android-APK «СтоКлетки» через Capacitor.
 #
-# Требования: Node >= 22, JDK 17, Android SDK (ANDROID_HOME).
+# Требования: Node >= 22, JDK 21 (Capacitor 7), Android SDK (ANDROID_HOME).
 # Запуск: bash scripts/build-apk.sh [--release]
 # ============================================================
 set -euo pipefail
@@ -18,6 +18,16 @@ if [ "$MAJOR" -lt 22 ]; then
   exit 1
 fi
 echo "✓ Node $(node -v)"
+
+# --- проверка JDK >= 21 (Capacitor 7 требует source/target 21) ---
+if command -v java >/dev/null 2>&1; then
+  JMAJOR="$(java -version 2>&1 | head -n1 | sed -E 's/.*version "([0-9]+).*/\1/')"
+  if [ -n "$JMAJOR" ] && [ "$JMAJOR" -lt 21 ]; then
+    echo "⚠ Java $JMAJOR найдена, но Capacitor 7 требует JDK 21."
+    echo "  Ubuntu: sudo apt install openjdk-21-jdk && export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64"
+    exit 1
+  fi
+fi
 
 echo "→ npm ci"
 npm ci
