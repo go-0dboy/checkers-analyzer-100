@@ -32,7 +32,6 @@ const ILast = (p: IP) => <svg {...base(p)}><path d="M13 17l5-5-5-5" /><path d="M
 const IPlay = (p: IP) => <svg {...base(p)}><path d="M6 4l14 8-14 8z" fill="currentColor" stroke="none" /></svg>;
 const IPause = (p: IP) => <svg {...base(p)}><path d="M7 5v14M17 5v14" strokeWidth={3} /></svg>;
 const IFlip = (p: IP) => <svg {...base(p)}><path d="M4 9h13l-3.5-3.5" /><path d="M20 15H7l3.5 3.5" /></svg>;
-const IHash = (p: IP) => <svg {...base(p)}><path d="M9 4L7 20M17 4l-2 16M4 9h17M3 15h17" /></svg>;
 const IPlus = (p: IP) => <svg {...base(p)}><path d="M12 5v14M5 12h14" /></svg>;
 const ICopy = (p: IP) => <svg {...base(p)}><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 012-2h10" /></svg>;
 const IDown = (p: IP) => <svg {...base(p)}><path d="M12 4v12m0 0l-5-5m5 5l5-5" /><path d="M5 20h14" /></svg>;
@@ -362,13 +361,16 @@ function BoardView({
           const c = flipped ? 9 - sc : sc;
           const n = sq(r, c);
           const dark = (r + c) % 2 === 1;
+          /* Светлые поля неинтерактивны (у них нет номера); ключ — экранный
+             индекс, он стабилен при перевороте, поэтому клетки не теряются. */
+          if (!dark) return <div key={i} className="sq-light relative block h-full w-full" />;
           const isLast = lastMove !== null && (lastMove.from === n || lastMove.to === n);
           const isSel = selected === n;
           return (
-            <button key={n} type="button" onClick={() => onSquare(n)} className={`relative block h-full w-full ${dark ? 'sq-dark' : 'sq-light'}`}>
-              {dark && showNums && <span className="sq-num">{n}</span>}
-              {dark && showNums && sc === 0 && <span className="sq-coord">{10 - r}</span>}
-              {dark && showNums && sr === 9 && <span className="sq-coord sq-coord-file">{FILES[c]}</span>}
+            <button key={i} type="button" onClick={() => onSquare(n)} className="sq-dark relative block h-full w-full">
+              {showNums && <span className="sq-num">{n}</span>}
+              {showNums && sc === 0 && <span className="sq-coord">{10 - r}</span>}
+              {showNums && sr === 9 && <span className="sq-coord sq-coord-file">{FILES[c]}</span>}
               {isLast && <span className="pointer-events-none absolute inset-0 bg-acc/20" />}
               {isSel && <span className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-acc" />}
               {destQuiet.has(n) && (
@@ -417,7 +419,6 @@ function BoardView({
       {/* стрелка: координаты в пикселях доски — размер зависит от экрана */}
       {arrow && (
         <svg
-          key={(preview ? 'p' : 'b') + arrow.d}
           viewBox={`0 0 ${px} ${px}`}
           className="pointer-events-none absolute inset-0 z-30 h-full w-full"
         >
@@ -434,12 +435,12 @@ function BoardView({
             </marker>
           </defs>
           <path
-            d={arrow.d} pathLength={1} fill="none"
+            d={arrow.d} fill="none"
             stroke={preview ? '#7fc4a4' : 'var(--accent)'}
             strokeOpacity={preview ? 0.85 : 0.95}
             strokeWidth={arrow.sw}
             strokeLinecap="round" strokeLinejoin="round"
-            markerEnd="url(#ah)" className="arrow-draw"
+            markerEnd="url(#ah)"
             style={{ filter: `drop-shadow(0 0 ${Math.max(2, px * 0.006)}px ${preview ? 'rgba(127,196,164,.45)' : 'color-mix(in oklab, var(--accent) 45%, transparent)'})` }}
           />
           {arrow.caps.map((n) => {
@@ -450,7 +451,6 @@ function BoardView({
                 key={n}
                 cx={(cc + 0.5) * arrow.cell} cy={(rr + 0.5) * arrow.cell} r={arrow.cell * 0.28}
                 fill="rgba(217,83,74,.16)" stroke="#d9534a" strokeWidth={arrow.ring}
-                className="arrow-draw-cap"
               />
             );
           })}
@@ -947,7 +947,9 @@ export default function App() {
               <TBtn title="В конец" onClick={g.toEnd} disabled={g.ply >= g.moves.length} className="h-12 flex-1"><ILast /></TBtn>
               <span className="mx-0.5 hidden h-7 w-px bg-white/10 sm:block" />
               <TBtn title="Перевернуть доску" onClick={g.toggleFlip} active={g.flipped} className="h-12 w-11 px-0"><IFlip /></TBtn>
-              <TBtn title="Нумерация полей" onClick={g.toggleNums} active={g.showNums} className="h-12 w-11 px-0"><IHash /></TBtn>
+              <TBtn title="Номера полей 1–50 на доске" onClick={g.toggleNums} active={g.showNums} className="h-12 w-12 px-0">
+                <span className="font-mono text-[11px] font-bold">1–50</span>
+              </TBtn>
               <TBtn title="Новая партия" onClick={g.newGame} className="h-12 w-11 px-0"><IPlus /></TBtn>
             </div>
           </div>
