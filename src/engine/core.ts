@@ -33,7 +33,10 @@ const SQ = new Int8Array(100).fill(-1);
 for (let r = 0; r < 10; r++) {
   for (let c = 0; c < 10; c++) {
     if ((r + c) % 2 === 1) {
-      const n = r * 5 + Math.floor((c + 1) / 2);
+      /* Нумерация 1–50 международных шашек: поле 1 = b10 (верхний ряд),
+         поле 46 = a1 (тёмное, левый нижний угол у белых).
+         r — 0-based сверху, c — 0-based (a=0). Формула: n = r*5 + ceil((c+1)/2). */
+      const n = r * 5 + Math.ceil((c + 1) / 2);
       SQ[r * 10 + c] = n;
       ROW_OF[n] = r;
       COL_OF[n] = c;
