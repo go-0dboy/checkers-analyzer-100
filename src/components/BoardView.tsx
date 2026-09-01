@@ -1,6 +1,7 @@
 /* ============================================================
  * BoardView — доска 10×10: поля с нумерацией 1–50, координаты a–j/1–10,
  * анимированные шашки, подсветки ходов, стрелка лучшего хода (SVG).
+ * Цвета доски и акцента — из активной темы (CSS-переменные).
  * ============================================================ */
 
 import { useMemo, useRef } from 'react';
@@ -127,6 +128,8 @@ export default function BoardView({
   const ranks = Array.from({ length: 10 }, (_, i) => (flipped ? i + 1 : 10 - i));
   const files = Array.from({ length: 10 }, (_, i) => FILES[flipped ? 9 - i : i]);
 
+  const arrowColor = preview ? '#7fc4a4' : 'var(--accent)';
+
   return (
     <div className="flex items-stretch gap-2.5 sm:gap-3">
       <EvalBarColumn pos={pos} />
@@ -135,13 +138,13 @@ export default function BoardView({
         {/* координаты: вертикаль слева */}
         <div className="absolute -left-5 top-0 flex h-full flex-col sm:-left-6">
           {ranks.map((r) => (
-            <div key={`r${r}`} className="flex flex-1 items-center font-mono text-[10px] text-[#6d8380] sm:text-xs">{r}</div>
+            <div key={`r${r}`} className="flex flex-1 items-center font-mono text-[10px] text-dim sm:text-xs">{r}</div>
           ))}
         </div>
         {/* координаты: горизонталь снизу */}
         <div className="absolute -bottom-5 left-0 flex w-full flex-row sm:-bottom-6">
           {files.map((f) => (
-            <div key={`f${f}`} className="flex flex-1 items-center justify-center font-mono text-[10px] text-[#6d8380] sm:text-xs">{f}</div>
+            <div key={`f${f}`} className="flex flex-1 items-center justify-center font-mono text-[10px] text-dim sm:text-xs">{f}</div>
           ))}
         </div>
 
@@ -175,16 +178,11 @@ export default function BoardView({
                       {n}
                     </span>
                   )}
-                  {isLast && <span className="pointer-events-none absolute inset-0 bg-[#e6a53c]/20" />}
-                  {isSel && <span className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-[#e6a53c]" />}
-                  {canFrom && !isSel && (
-                    <span className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-150 hover:opacity-100 group-hover:opacity-100">
-                      <span className="absolute inset-0 bg-white/10" />
-                    </span>
-                  )}
+                  {isLast && <span className="pointer-events-none absolute inset-0 bg-acc/20" />}
+                  {isSel && <span className="sq-sel pointer-events-none absolute inset-0" />}
                   {destQuiet.has(n) && (
                     <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                      <span className="h-[30%] w-[30%] rounded-full border border-[#e6a53c]/70 bg-[#e6a53c]/35 shadow-[0_0_10px_rgba(230,165,60,.5)]" />
+                      <span className="h-[30%] w-[30%] rounded-full border border-acc/70 bg-acc/35 shadow-[0_0_10px_color-mix(in_oklab,var(--accent)_50%,transparent)]" />
                     </span>
                   )}
                   {destCaps.has(n) && (
@@ -192,7 +190,7 @@ export default function BoardView({
                   )}
                   {victims.has(n) && (
                     <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                      <span className="victim-x relative h-[46%] w-[46%]">
+                      <span className="relative h-[46%] w-[46%]">
                         <span className="absolute left-1/2 top-1/2 h-[14%] w-full -translate-x-1/2 -translate-y-1/2 rotate-45 rounded bg-[#d9534a]/90" />
                         <span className="absolute left-1/2 top-1/2 h-[14%] w-full -translate-x-1/2 -translate-y-1/2 -rotate-45 rounded bg-[#d9534a]/90" />
                       </span>
@@ -241,21 +239,25 @@ export default function BoardView({
             >
               <defs>
                 <marker id="arrowHead" markerWidth="5" markerHeight="5" refX="2.6" refY="2.5" orient="auto">
-                  <path d="M0,0 L5,2.5 L0,5 z" fill={preview ? '#7fc4a4' : '#e6a53c'} />
+                  <path d="M0,0 L5,2.5 L0,5 z" style={{ fill: arrowColor }} />
                 </marker>
               </defs>
               <path
                 d={arrow.d}
                 pathLength={1}
                 fill="none"
-                stroke={preview ? '#7fc4a4' : '#e6a53c'}
                 strokeOpacity={preview ? 0.85 : 0.95}
                 strokeWidth={arrow.isCap ? 2.6 : 2}
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 markerEnd="url(#arrowHead)"
                 className="arrow-draw"
-                style={{ filter: `drop-shadow(0 0 3px ${preview ? 'rgba(127,196,164,.5)' : 'rgba(230,165,60,.45)'})` }}
+                style={{
+                  stroke: arrowColor,
+                  filter: preview
+                    ? 'drop-shadow(0 0 3px rgba(127,196,164,.5))'
+                    : 'drop-shadow(0 0 4px color-mix(in oklab, var(--accent) 45%, transparent))',
+                }}
               />
               {arrow.caps.map((n) => {
                 const [r, c] = rc(n);
@@ -279,11 +281,11 @@ export default function BoardView({
 
           {winner !== null && (
             <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#0a1214]/55 backdrop-blur-[2px]">
-              <div className="rounded-md border border-[#e6a53c]/40 bg-[#101d20]/95 px-6 py-4 text-center shadow-[0_10px_40px_rgba(0,0,0,.5)]">
-                <div className="font-display text-sm font-bold tracking-[.18em] text-[#f0bc62] sm:text-base">
+              <div className="rounded-md border border-acc/40 bg-pan/95 px-6 py-4 text-center shadow-[0_10px_40px_rgba(0,0,0,.5)]">
+                <div className="font-display text-sm font-bold tracking-[.18em] text-acc2 sm:text-base">
                   {winner === WHITE ? 'ПОБЕДА БЕЛЫХ' : 'ПОБЕДА ЧЁРНЫХ'}
                 </div>
-                <div className="mt-1 text-xs text-[#8fa3a0]">у соперника нет ходов · правила ФМЖД</div>
+                <div className="mt-1 text-xs text-mut">у соперника нет ходов · правила ФМЖД</div>
               </div>
             </div>
           )}

@@ -4,7 +4,7 @@
  * ============================================================ */
 
 import { useState } from 'react';
-import { type Move, moveNotation } from '../engine/core';
+import { type Move } from '../engine/core';
 import { toPDN, SAMPLE_PDN } from '../engine/pdn';
 import { IconBook, IconCopy, IconCheck, IconDown, IconFile, IconLoad, IconWarn, ToolButton } from './ui';
 
@@ -24,7 +24,7 @@ export default function FormatsPanel({
   const [msg, setMsg] = useState<Msg>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
-  const pdnText = toPDN(headers, moves, moves.length > 0 ? '*' : '*');
+  const pdnText = toPDN(headers, moves, '*');
 
   const copy = async (text: string, what: string) => {
     try {
@@ -82,7 +82,7 @@ export default function FormatsPanel({
       {/* FEN */}
       <section className="panel p-4">
         <header className="mb-2 flex items-center justify-between">
-          <h2 className="font-display text-[11px] font-bold tracking-[.22em] text-[#8fa3a0]">FEN ПОЗИЦИИ</h2>
+          <h2 className="font-display text-[11px] font-bold tracking-[.22em] text-mut">FEN ПОЗИЦИИ</h2>
           <span className="chip">Liens / PDN-FEN</span>
         </header>
         <div className="flex gap-1.5">
@@ -90,7 +90,7 @@ export default function FormatsPanel({
             value={fen}
             readOnly
             spellCheck={false}
-            className="min-w-0 flex-1 rounded-md border border-white/10 bg-black/25 px-3 py-2 font-mono text-xs text-[#c8d6d2] outline-none"
+            className="min-w-0 flex-1 rounded-md border border-white/10 bg-black/25 px-3 py-2 font-mono text-xs text-body outline-none"
           />
           <ToolButton title="Копировать FEN" onClick={() => copy(fen, 'FEN')} className="shrink-0">
             {copied === 'FEN' ? <IconCheck size={15} /> : <IconCopy size={15} />}
@@ -103,23 +103,23 @@ export default function FormatsPanel({
             onKeyDown={(e) => { if (e.key === 'Enter') doLoadFen(); }}
             placeholder="W:W31-50:B1-20  или  B:WK48,44:BK25"
             spellCheck={false}
-            className="min-w-0 flex-1 rounded-md border border-white/10 bg-black/25 px-3 py-2 font-mono text-xs text-[#e9efe9] placeholder-[#5a6f6b] outline-none transition-colors focus:border-[#e6a53c]/60"
+            className="min-w-0 flex-1 rounded-md border border-white/10 bg-black/25 px-3 py-2 font-mono text-xs text-ink placeholder:text-dim outline-none transition-colors focus:border-acc/60"
           />
           <ToolButton title="Загрузить позицию" accent onClick={doLoadFen} className="shrink-0">
             <IconLoad size={15} />
             <span className="hidden text-xs font-semibold sm:inline">Загрузить</span>
           </ToolButton>
         </div>
-        <p className="mt-2 text-[11px] leading-relaxed text-[#6d8380]">
-          Формат: <span className="font-mono text-[#8fa3a0]">сторона:белые:чёрные</span>, дамки с префиксом{' '}
-          <span className="font-mono text-[#8fa3a0]">K</span>, диапазоны полей через дефис.
+        <p className="mt-2 text-[11px] leading-relaxed text-dim">
+          Формат: <span className="font-mono text-mut">сторона:белые:чёрные</span>, дамки с префиксом{' '}
+          <span className="font-mono text-mut">K</span>, диапазоны полей через дефис.
         </p>
       </section>
 
       {/* PDN */}
       <section className="panel p-4">
         <header className="mb-2 flex items-center justify-between">
-          <h2 className="font-display text-[11px] font-bold tracking-[.22em] text-[#8fa3a0]">ПАРТИЯ · PDN</h2>
+          <h2 className="font-display text-[11px] font-bold tracking-[.22em] text-mut">ПАРТИЯ · PDN</h2>
           <span className="chip">{moves.length} полуходов</span>
         </header>
         <textarea
@@ -128,7 +128,7 @@ export default function FormatsPanel({
           rows={7}
           spellCheck={false}
           placeholder={'Вставьте партию в PDN:\n[Event "..."]\n1.32-28 19-23 2.28x19 14x23 ...'}
-          className="w-full resize-y rounded-md border border-white/10 bg-black/25 px-3 py-2 font-mono text-xs leading-relaxed text-[#e9efe9] placeholder-[#5a6f6b] outline-none transition-colors focus:border-[#e6a53c]/60 scroll-slim"
+          className="w-full resize-y rounded-md border border-white/10 bg-black/25 px-3 py-2 font-mono text-xs leading-relaxed text-ink placeholder-dim outline-none transition-colors focus:border-acc/60 scroll-slim"
         />
         <div className="mt-2 flex flex-wrap gap-1.5">
           <ToolButton accent title="Разобрать PDN из поля" onClick={doLoadPdn}>
@@ -147,16 +147,16 @@ export default function FormatsPanel({
           </ToolButton>
         </div>
         <details className="group mt-3 rounded-md border border-white/8 bg-black/20 px-3 py-2">
-          <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-semibold text-[#8fa3a0] transition-colors hover:text-[#c8d6d2]">
+          <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-semibold text-mut transition-colors hover:text-body">
             <IconFile size={13} />
             Текущая партия в PDN
-            <span className="ml-auto text-[#6d8380] transition-transform group-open:rotate-180">▾</span>
+            <span className="ml-auto text-dim transition-transform group-open:rotate-180">▾</span>
           </summary>
-          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[#a9bdb8]">{pdnText}</pre>
+          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-mut">{pdnText}</pre>
         </details>
-        <p className="mt-2 text-[11px] leading-relaxed text-[#6d8380]">
-          Поддерживаются заголовки <span className="font-mono text-[#8fa3a0]">[Tag "…"]</span>, ходы{' '}
-          <span className="font-mono text-[#8fa3a0]">32-28 / 28x19</span>, результат 1-0 · 0-1 · 1-1 · *.
+        <p className="mt-2 text-[11px] leading-relaxed text-dim">
+          Поддерживаются заголовки <span className="font-mono text-mut">[Tag "…"]</span>, ходы{' '}
+          <span className="font-mono text-mut">32-28 / 28x19</span>, результат 1-0 · 0-1 · 1-1 · *.
           Устаревший TREC перед загрузкой конвертируйте в PDN (например, в Dam2).
         </p>
       </section>

@@ -1,7 +1,7 @@
 /* ============================================================
  * СтоКлетка — анализатор международных шашек (100 клеток, ФМЖД).
  * Веб-MVP мобильного приложения: доска, строгие правила, движок,
- * навигация по партии, FEN/PDN, справка по интеграции.
+ * навигация по партии, FEN/PDN, темы оформления, справка по интеграции.
  * ============================================================ */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -12,14 +12,15 @@ import AnalysisPanel from './components/AnalysisPanel';
 import MovePanel from './components/MovePanel';
 import FormatsPanel from './components/FormatsPanel';
 import IntegrationDocs from './components/IntegrationDocs';
+import ThemePicker from './components/ThemePicker';
 import { Dot, IconBook, IconChip, IconFile, IconWarn } from './components/ui';
 
 type Tab = 'analysis' | 'formats' | 'engine';
 
 const TABS: { id: Tab; label: string; icon: (active: boolean) => ReactNode }[] = [
-  { id: 'analysis', label: 'Анализ', icon: (a) => <IconChip size={15} className={a ? 'text-[#f0bc62]' : ''} /> },
-  { id: 'formats', label: 'Форматы', icon: (a) => <IconFile size={15} className={a ? 'text-[#f0bc62]' : ''} /> },
-  { id: 'engine', label: 'Движок и интеграция', icon: (a) => <IconBook size={15} className={a ? 'text-[#f0bc62]' : ''} /> },
+  { id: 'analysis', label: 'Анализ', icon: (a) => <IconChip size={15} className={a ? 'text-acc2' : ''} /> },
+  { id: 'formats', label: 'Форматы', icon: (a) => <IconFile size={15} className={a ? 'text-acc2' : ''} /> },
+  { id: 'engine', label: 'Движок и интеграция', icon: (a) => <IconBook size={15} className={a ? 'text-acc2' : ''} /> },
 ];
 
 function LogoMark() {
@@ -43,29 +44,27 @@ function LogoMark() {
 
 function StatusRow({ game }: { game: GameApi }) {
   const { pos, mustCapture, winner, ply, moves } = game;
+  const activeChip = 'border-acc/60 bg-acc/12 text-acc2 shadow-[0_0_14px_color-mix(in_oklab,var(--accent)_15%,transparent)]';
+  const idleChip = 'border-white/10 bg-white/[.03] text-dim';
   return (
     <div className="mt-7 flex flex-wrap items-center gap-2 sm:mt-8">
       <span
         className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all duration-300 ${
-          !winner && pos.side === WHITE
-            ? 'border-[#e6a53c]/60 bg-[#e6a53c]/12 text-[#f2c069] shadow-[0_0_14px_rgba(230,165,60,.15)]'
-            : 'border-white/10 bg-white/[.03] text-[#6d8380]'
+          !winner && pos.side === WHITE ? activeChip : idleChip
         }`}
       >
-        <span className="h-2.5 w-2.5 rounded-full bg-[#e9efe9] shadow-[inset_0_-1px_2px_rgba(0,0,0,.35)]" />
+        <span className="h-2.5 w-2.5 rounded-full bg-ink shadow-[inset_0_-1px_2px_rgba(0,0,0,.35)]" />
         Белые
       </span>
       <span
         className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all duration-300 ${
-          !winner && pos.side !== WHITE
-            ? 'border-[#e6a53c]/60 bg-[#e6a53c]/12 text-[#f2c069] shadow-[0_0_14px_rgba(230,165,60,.15)]'
-            : 'border-white/10 bg-white/[.03] text-[#6d8380]'
+          !winner && pos.side !== WHITE ? activeChip : idleChip
         }`}
       >
         <span className="h-2.5 w-2.5 rounded-full bg-[#15181c] shadow-[inset_0_1px_2px_rgba(255,255,255,.25),0_0_0_1px_rgba(255,255,255,.15)]" />
         Чёрные
       </span>
-      <span className="font-mono text-[11px] text-[#6d8380]">
+      <span className="font-mono text-[11px] text-dim">
         {winner !== null ? 'партия окончена' : `ход ${pos.side === WHITE ? 'белых' : 'чёрных'}`}
         {' · '}полуход {ply}/{moves.length}
       </span>
@@ -107,23 +106,26 @@ export default function App() {
   return (
     <div className="min-h-dvh">
       {/* ======= шапка ======= */}
-      <header className="border-b border-white/[.07] bg-[#0d181b]/80 backdrop-blur-sm">
+      <header className="border-b border-white/[.07] bg-pan/80 backdrop-blur-sm">
         <div className="mx-auto flex max-w-[1220px] items-center gap-3 px-4 py-3 sm:gap-4">
           <LogoMark />
           <div className="min-w-0">
-            <h1 className="font-display text-base font-black leading-none tracking-[.14em] text-[#e9efe9] sm:text-lg">
-              СТО<span className="text-[#f0bc62]">КЛЕТКА</span>
+            <h1 className="font-display text-base font-black leading-none tracking-[.14em] text-ink sm:text-lg">
+              СТО<span className="text-acc2">КЛЕТКА</span>
             </h1>
-            <p className="mt-1 truncate text-[11px] leading-none text-[#6d8380]">
+            <p className="mt-1 truncate text-[11px] leading-none text-dim">
               международные шашки · 100 клеток · правила ФМЖД
             </p>
           </div>
-          <div className="ml-auto hidden items-center gap-2 rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5 sm:flex">
-            <Dot color={game.engine.thinking ? '#e6a53c' : '#5fb287'} pulse={game.engine.thinking} />
-            <span className="font-mono text-[11px] text-[#a9bdb8]">
-              СтоКлетка Engine 0.1 · α-β
-              {game.engine.thinking ? ` · d${game.engine.depth || 1}…` : game.engine.depth ? ` · d${game.engine.depth}` : ''}
-            </span>
+          <div className="ml-auto flex items-center gap-2 sm:gap-3">
+            <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5 md:flex">
+              <Dot color={game.engine.thinking ? 'var(--accent)' : '#5fb287'} pulse={game.engine.thinking} />
+              <span className="font-mono text-[11px] text-mut">
+                СтоКлетка Engine 0.1 · α-β
+                {game.engine.thinking ? ` · d${game.engine.depth || 1}…` : game.engine.depth ? ` · d${game.engine.depth}` : ''}
+              </span>
+            </div>
+            <ThemePicker />
           </div>
         </div>
       </header>
@@ -148,7 +150,7 @@ export default function App() {
           </div>
           <div className="mx-auto max-w-[620px] pl-5 sm:pl-6">
             <StatusRow game={game} />
-            <p className="mt-3 text-[11px] leading-relaxed text-[#6d8380]">
+            <p className="mt-3 text-[11px] leading-relaxed text-dim">
               Клик по своей шашке — выбор, по подсвеченному полю — ход. Красные метки «×» — поля, которые будут побиты
               в выбранном взятии. Стрелка на доске — лучший ход по версии движка.
             </p>
@@ -165,8 +167,8 @@ export default function App() {
                 onClick={() => setTab(t.id)}
                 className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-2 text-xs font-semibold transition-all duration-150 ${
                   tab === t.id
-                    ? 'bg-[#13262a] text-[#f2c069] shadow-[inset_0_0_0_1px_rgba(230,165,60,.35),0_2px_10px_rgba(0,0,0,.3)]'
-                    : 'text-[#8fa3a0] hover:bg-white/[.05] hover:text-[#c8d6d2]'
+                    ? 'bg-acc/15 text-acc2 shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--accent)_35%,transparent),0_2px_10px_rgba(0,0,0,.3)]'
+                    : 'text-mut hover:bg-white/[.05] hover:text-body'
                 }`}
               >
                 {t.icon(tab === t.id)}
@@ -214,8 +216,8 @@ export default function App() {
 
       {/* ======= футер ======= */}
       <footer className="border-t border-white/[.06] py-4">
-        <div className="mx-auto flex max-w-[1220px] flex-wrap items-center gap-x-4 gap-y-1 px-4 text-[11px] text-[#5a6f6b]">
-          <span className="font-display font-bold tracking-[.14em] text-[#6d8380]">СТОКЛЕТКА · MVP</span>
+        <div className="mx-auto flex max-w-[1220px] flex-wrap items-center gap-x-4 gap-y-1 px-4 text-[11px] text-dim">
+          <span className="font-display font-bold tracking-[.14em]">СТОКЛЕТКА · MVP</span>
           <span>летающие дамки</span>
           <span>обязательное взятие большинства</span>
           <span>дамка только при остановке на последней горизонтали</span>
@@ -225,7 +227,7 @@ export default function App() {
 
       {/* тост-подсказка */}
       {game.hint && (
-        <div className="toast-in pointer-events-none fixed bottom-6 left-1/2 z-50 flex items-center gap-2 rounded-md border border-[#e6a53c]/50 bg-[#132226]/95 px-4 py-2.5 text-xs font-semibold text-[#f2c069] shadow-[0_10px_30px_rgba(0,0,0,.5)]">
+        <div className="toast-in pointer-events-none fixed bottom-6 left-1/2 z-50 flex items-center gap-2 rounded-md border border-acc/50 bg-pan/95 px-4 py-2.5 text-xs font-semibold text-acc2 shadow-[0_10px_30px_rgba(0,0,0,.5)] backdrop-blur-sm">
           <IconWarn size={14} />
           {game.hint}
         </div>

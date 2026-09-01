@@ -6,27 +6,132 @@
   --font-mono: "JetBrains Mono", "Consolas", monospace;
 }
 
+/* Токены, переключаемые темой в рантайме (html[data-theme=...]) */
+@theme inline {
+  --color-acc: var(--accent);
+  --color-acc2: var(--accent-2);
+  --color-ink: var(--ink);
+  --color-body: var(--body);
+  --color-mut: var(--mut);
+  --color-dim: var(--dim);
+  --color-pan: var(--panel-b);
+}
+
+/* ============================================================
+ * ТЕМЫ ОФОРМЛЕНИЯ
+ * ============================================================ */
+:root {
+  color-scheme: dark;
+  /* Турнир (по умолчанию) */
+  --accent: #e6a53c;
+  --accent-2: #f2c069;
+  --ink: #e9efe9;
+  --body: #c8d6d2;
+  --mut: #8fa3a0;
+  --dim: #6d8380;
+  --bg: #0b1416;
+  --panel-a: rgba(20, 34, 38, 0.94);
+  --panel-b: rgba(13, 24, 27, 0.94);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --glow: rgba(230, 165, 60, 0.08);
+  --glow2: rgba(44, 90, 94, 0.3);
+  --sq-dark-a: #275259;
+  --sq-dark-b: #1b3e46;
+  --sq-light-a: #e0e7e0;
+  --sq-light-b: #cdd7cf;
+  --frame: #0e1a1d;
+  --rim-black: rgba(235, 255, 250, 0.34);
+}
+
+html[data-theme="walnut"] {
+  --accent: #d08348;
+  --accent-2: #eda96f;
+  --ink: #ece5d8;
+  --body: #cfc3b2;
+  --mut: #a3927e;
+  --dim: #7d6f5e;
+  --bg: #14100c;
+  --panel-a: rgba(38, 29, 22, 0.94);
+  --panel-b: rgba(24, 18, 13, 0.94);
+  --panel-border: rgba(255, 240, 220, 0.08);
+  --glow: rgba(208, 131, 72, 0.09);
+  --glow2: rgba(94, 64, 40, 0.35);
+  --sq-dark-a: #7a5230;
+  --sq-dark-b: #654123;
+  --sq-light-a: #ead9b8;
+  --sq-light-b: #dcc79f;
+  --frame: #1c1410;
+  --rim-black: rgba(255, 240, 220, 0.38);
+}
+
+html[data-theme="malachite"] {
+  --accent: #4fae83;
+  --accent-2: #8ed0ae;
+  --ink: #e7efe8;
+  --body: #c6d5ca;
+  --mut: #8aa396;
+  --dim: #648070;
+  --bg: #0b1512;
+  --panel-a: rgba(18, 34, 28, 0.94);
+  --panel-b: rgba(11, 22, 18, 0.94);
+  --panel-border: rgba(220, 255, 235, 0.08);
+  --glow: rgba(79, 174, 131, 0.09);
+  --glow2: rgba(28, 78, 58, 0.38);
+  --sq-dark-a: #2f6e50;
+  --sq-dark-b: #22573d;
+  --sq-light-a: #ece4c6;
+  --sq-light-b: #ded2ad;
+  --frame: #0c1b15;
+  --rim-black: rgba(230, 255, 240, 0.36);
+}
+
+html[data-theme="polar"] {
+  --accent: #6fb3cc;
+  --accent-2: #a9d4e4;
+  --ink: #e8edf1;
+  --body: #c6d0d9;
+  --mut: #8b9aa8;
+  --dim: #657482;
+  --bg: #0d1218;
+  --panel-a: rgba(20, 29, 40, 0.94);
+  --panel-b: rgba(12, 19, 27, 0.94);
+  --panel-border: rgba(220, 240, 255, 0.08);
+  --glow: rgba(111, 179, 204, 0.09);
+  --glow2: rgba(48, 78, 108, 0.35);
+  --sq-dark-a: #41505f;
+  --sq-dark-b: #303e4c;
+  --sq-light-a: #dde3e8;
+  --sq-light-b: #c9d2d9;
+  --frame: #111923;
+  --rim-black: rgba(215, 235, 255, 0.4);
+}
+
 /* ---------- фон и база ---------- */
 html, body { margin: 0; }
 
 body {
-  background-color: #0b1416;
-  color: #d5e0dc;
+  background-color: var(--bg);
+  color: var(--body);
   font-family: var(--font-sans);
   background-image:
-    radial-gradient(900px 480px at 88% -8%, rgba(230, 165, 60, 0.075), transparent 62%),
-    radial-gradient(820px 620px at -12% 108%, rgba(44, 90, 94, 0.3), transparent 60%),
+    radial-gradient(900px 480px at 88% -8%, var(--glow), transparent 62%),
+    radial-gradient(820px 620px at -12% 108%, var(--glow2), transparent 60%),
     repeating-conic-gradient(rgba(255, 255, 255, 0.014) 0% 25%, transparent 0% 50%);
   background-size: auto, auto, 54px 54px;
   background-attachment: fixed;
 }
 
-::selection { background: rgba(230, 165, 60, 0.35); color: #fff; }
+/* плавная смена темы */
+body, .panel, .sq-dark, .sq-light, .board-frame, .chip, .piece-disc, .theme-card {
+  transition: background-color 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease, color 0.35s ease;
+}
+
+::selection { background: color-mix(in oklab, var(--accent) 35%, transparent); color: #fff; }
 
 /* ---------- поверхности ---------- */
 .panel {
-  background: linear-gradient(180deg, rgba(20, 34, 38, 0.94), rgba(13, 24, 27, 0.94));
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, var(--panel-a), var(--panel-b));
+  border: 1px solid var(--panel-border);
   border-radius: 10px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
 }
@@ -40,13 +145,13 @@ body {
   border-radius: 9999px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.04);
-  color: #8fa3a0;
+  color: var(--mut);
   white-space: nowrap;
 }
 .chip-amber {
-  color: #f0bc62;
-  border-color: rgba(230, 165, 60, 0.45);
-  background: rgba(230, 165, 60, 0.1);
+  color: var(--accent-2);
+  border-color: color-mix(in oklab, var(--accent) 45%, transparent);
+  background: color-mix(in oklab, var(--accent) 10%, transparent);
 }
 
 /* ---------- доска ---------- */
@@ -54,18 +159,19 @@ body {
   box-shadow:
     0 22px 60px rgba(0, 0, 0, 0.55),
     0 0 0 1px rgba(255, 255, 255, 0.09),
-    0 0 0 7px #0e1a1d,
+    0 0 0 7px var(--frame),
     0 0 0 8px rgba(255, 255, 255, 0.06);
 }
 
 .sq-dark {
-  background: linear-gradient(145deg, #20424a, #17343c);
+  background: linear-gradient(145deg, var(--sq-dark-a), var(--sq-dark-b));
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
 }
 .sq-light {
-  background: linear-gradient(145deg, #dee5df, #ccd6cf);
+  background: linear-gradient(145deg, var(--sq-light-a), var(--sq-light-b));
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.07);
 }
+.sq-sel { box-shadow: inset 0 0 0 2px var(--accent); }
 
 /* ---------- шашки ---------- */
 .piece-layer {
@@ -93,22 +199,23 @@ body {
   box-shadow:
     0 3px 8px rgba(0, 0, 0, 0.5),
     inset 0 0 0 2px rgba(255, 255, 255, 0.65),
-    inset 0 0 0 7px rgba(120, 90, 40, 0.16),
+    inset 0 0 0 7px rgba(120, 90, 40, 0.18),
     inset 0 -4px 8px rgba(0, 0, 0, 0.18);
 }
+/* Чёрная шашка: заметный светлый кант (--rim-black) — читается на любой тёмной клетке */
 .piece-black {
-  background: radial-gradient(circle at 35% 30%, #4b5158, #24282e 55%, #0e1013 100%);
+  background: radial-gradient(circle at 35% 28%, #4d545c, #262b31 52%, #0c0e11 100%);
   box-shadow:
-    0 3px 8px rgba(0, 0, 0, 0.6),
-    inset 0 0 0 2px rgba(255, 255, 255, 0.14),
-    inset 0 0 0 7px rgba(255, 255, 255, 0.05),
-    inset 0 -4px 8px rgba(0, 0, 0, 0.5);
+    0 4px 10px rgba(0, 0, 0, 0.55),
+    inset 0 0 0 2px var(--rim-black),
+    inset 0 0 0 6px rgba(255, 255, 255, 0.06),
+    inset 0 -5px 9px rgba(0, 0, 0, 0.5);
 }
 .piece-movable:hover { filter: brightness(1.15); }
 .piece-disc.piece-selected {
   box-shadow:
-    0 0 0 2.5px rgba(230, 165, 60, 0.95),
-    0 0 18px rgba(230, 165, 60, 0.55),
+    0 0 0 2.5px var(--accent),
+    0 0 18px color-mix(in oklab, var(--accent) 55%, transparent),
     0 3px 8px rgba(0, 0, 0, 0.5);
 }
 .piece-pop { animation: piece-pop 0.36s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
@@ -156,8 +263,8 @@ body {
   height: 14px;
   flex-shrink: 0;
   border-radius: 50%;
-  border: 2px solid rgba(230, 165, 60, 0.22);
-  border-top-color: #e6a53c;
+  border: 2px solid color-mix(in oklab, var(--accent) 22%, transparent);
+  border-top-color: var(--accent);
   animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -172,6 +279,12 @@ body {
 @keyframes toast-in {
   from { opacity: 0; transform: translate(-50%, 14px); }
   to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.pop-in { animation: pop-in 0.18s ease-out both; }
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* ---------- скроллбар ---------- */

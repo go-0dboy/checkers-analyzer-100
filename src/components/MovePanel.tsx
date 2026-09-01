@@ -68,8 +68,8 @@ export default function MovePanel({
 
       {/* лента ходов */}
       <div className="mt-3 flex items-baseline justify-between">
-        <h2 className="font-display text-[11px] font-bold tracking-[.22em] text-[#8fa3a0]">ПАРТИЯ</h2>
-        <span className="font-mono text-[11px] text-[#6d8380]">
+        <h2 className="font-display text-[11px] font-bold tracking-[.22em] text-mut">ПАРТИЯ</h2>
+        <span className="font-mono text-[11px] text-dim">
           ход {ply} / {moves.length}
         </span>
       </div>
@@ -79,14 +79,14 @@ export default function MovePanel({
           type="button"
           ref={ply === 0 ? activeRef : undefined}
           onClick={() => goto(0)}
-          className={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-white/[.06] ${ply === 0 ? 'bg-[#e6a53c]/12' : ''}`}
+          className={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-white/[.06] ${ply === 0 ? 'bg-acc/12' : ''}`}
         >
-          <span className="w-8 font-mono text-[11px] text-[#6d8380]">—</span>
-          <span className="text-xs text-[#8fa3a0]">начальная позиция{ply === 0 ? ' · сейчас' : ''}</span>
+          <span className="w-8 font-mono text-[11px] text-dim">—</span>
+          <span className="text-xs text-mut">начальная позиция{ply === 0 ? ' · сейчас' : ''}</span>
         </button>
         {rows.map((row) => (
           <div key={row.no} className="flex items-stretch border-t border-white/[.05]">
-            <span className="flex w-9 shrink-0 items-center justify-center font-mono text-[11px] text-[#6d8380]">
+            <span className="flex w-9 shrink-0 items-center justify-center font-mono text-[11px] text-dim">
               {row.no}.
             </span>
             <button
@@ -94,7 +94,7 @@ export default function MovePanel({
               ref={ply === row.wPly ? activeRef : undefined}
               onClick={() => goto(row.wPly)}
               className={`flex-1 px-2 py-1.5 text-left font-mono text-sm transition-colors hover:bg-white/[.07] ${
-                ply === row.wPly ? 'bg-[#e6a53c]/15 font-bold text-[#f2c069]' : 'text-[#d5e0dc]'
+                ply === row.wPly ? 'bg-acc/15 font-bold text-acc2' : 'text-body'
               }`}
             >
               {row.w ? moveNotation(row.w) : ''}
@@ -104,7 +104,7 @@ export default function MovePanel({
               ref={ply === row.bPly ? activeRef : undefined}
               onClick={() => row.b && goto(row.bPly)}
               className={`flex-1 px-2 py-1.5 text-left font-mono text-sm transition-colors hover:bg-white/[.07] ${
-                ply === row.bPly ? 'bg-[#e6a53c]/15 font-bold text-[#f2c069]' : 'text-[#d5e0dc]'
+                ply === row.bPly ? 'bg-acc/15 font-bold text-acc2' : 'text-body'
               } ${row.b ? '' : 'cursor-default opacity-30'}`}
             >
               {row.b ? moveNotation(row.b) : '…'}
@@ -112,13 +112,13 @@ export default function MovePanel({
           </div>
         ))}
         {moves.length === 0 && (
-          <div className="px-3 py-4 text-center text-xs text-[#6d8380]">
+          <div className="px-3 py-4 text-center text-xs text-dim">
             Ходов пока нет — делайте ходы на доске или загрузите партию во вкладке «Форматы».
           </div>
         )}
       </div>
 
-      <div className="mt-2 text-[11px] leading-relaxed text-[#6d8380]">
+      <div className="mt-2 text-[11px] leading-relaxed text-dim">
         Ход с середины партии создаёт новый вариант — хвост отбрасывается.
       </div>
     </section>

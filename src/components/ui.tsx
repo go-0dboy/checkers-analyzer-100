@@ -1,4 +1,5 @@
-/* Общие UI-примитивы: кнопки и инлайновые SVG-иконки (без внешних библиотек). */
+/* Общие UI-примитивы: кнопки и инлайновые SVG-иконки (без внешних библиотек).
+ * Цвета — токены темы (acc/acc2/ink/body/mut/dim), определяются в index.css. */
 
 import type { ReactNode, SVGProps } from 'react';
 
@@ -90,10 +91,10 @@ export function ToolButton({
         'inline-flex h-10 min-w-10 items-center justify-center gap-1.5 rounded-md border px-2.5',
         'transition-all duration-150 select-none',
         active
-          ? 'border-[#e6a53c]/70 bg-[#e6a53c]/15 text-[#f2c069] shadow-[0_0_14px_rgba(230,165,60,.18)]'
+          ? 'border-acc/70 bg-acc/15 text-acc2 shadow-[0_0_14px_color-mix(in_oklab,var(--accent)_18%,transparent)]'
           : accent
-            ? 'border-[#e6a53c]/50 bg-[#e6a53c]/10 text-[#f0bc62] hover:bg-[#e6a53c]/20 hover:border-[#e6a53c]'
-            : 'border-white/10 bg-white/[.04] text-[#c8d6d2] hover:bg-white/[.09] hover:border-white/20',
+            ? 'border-acc/50 bg-acc/10 text-acc2 hover:border-acc hover:bg-acc/20'
+            : 'border-white/10 bg-white/[.04] text-body hover:border-white/20 hover:bg-white/[.09]',
         disabled ? 'cursor-not-allowed opacity-30 hover:bg-white/[.04]' : 'active:scale-[.94]',
         className,
       ].join(' ')}
