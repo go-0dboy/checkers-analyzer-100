@@ -38,13 +38,21 @@ npm run typecheck
 echo "→ Веб-сборка (dist/)"
 npm run build
 
+if [ ! -x node_modules/.bin/cap ]; then
+  echo "✗ @capacitor/cli не найден: npm i -S @capacitor/cli @capacitor/core @capacitor/android"
+  exit 1
+fi
+
 if [ ! -d android ]; then
   echo "→ android/ отсутствует — создаю нативный шаблон"
-  npx cap add android
+  node_modules/.bin/cap add android
 fi
 
 echo "→ Синхронизация веб-ассетов с нативным проектом"
-npx cap sync android
+node_modules/.bin/cap sync android
+
+echo "→ Фирменные иконки (resources/icon.svg)"
+node scripts/apply-icons.mjs
 
 # --- фирменные иконки (если есть ImageMagick) ---
 ICON=assets/app-icon.svg

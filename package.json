@@ -23,6 +23,7 @@
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.8.0",
     "recharts": "^2.10.0",
+    "sharp": "^0.35.4",
     "uuid": "^9.0.1"
   },
   "devDependencies": {

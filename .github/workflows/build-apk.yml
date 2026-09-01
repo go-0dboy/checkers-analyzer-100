@@ -53,15 +53,27 @@ jobs:
       - name: Веб-сборка (dist/)
         run: npm run build
 
+      # npx иногда не находит бинарь cap — используем прямой путь из node_modules.
+      - name: Проверка Capacitor CLI
+        run: |
+          if [ ! -x node_modules/.bin/cap ]; then
+            echo "::error::@capacitor/cli не установлен. Добавьте в зависимости: npm i -S @capacitor/cli @capacitor/core @capacitor/android — и закоммитьте package.json + package-lock.json"
+            exit 1
+          fi
+
       # Папку android/ можно коммитить, а можно генерировать в CI —
       # workflow корректно работает в обоих случаях.
       - name: Capacitor · платформа Android
         run: |
           if [ ! -d android ]; then
-            echo "::notice::android/ отсутствует — создаю шаблон (npx cap add android)"
-            npx cap add android
+            echo "::notice::android/ отсутствует — создаю шаблон"
+            node_modules/.bin/cap add android
           fi
-          npx cap sync android
+          node_modules/.bin/cap sync android
+
+      # Фирменные иконки вместо шаблонных (resources/icon.svg → mipmap-*)
+      - name: Иконки приложения
+        run: node scripts/apply-icons.mjs
 
       # Фирменная иконка: assets/app-icon.svg → PNG всех плотностей
       # (ImageMagick с RSVG предуставлен на ubuntu-раннерах).
