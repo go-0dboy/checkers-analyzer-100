@@ -34,7 +34,9 @@ const IDLE: EngineState = {
   best: null, candidates: [], pv: [], mate: false, book: null,
 };
 
-const STORE_KEY = 'sk100.game.v1';
+/* v2: старые сохранения (сделанные до исправления нумерации полей)
+   несовместимы — при загрузке игнорируются, партия начинается заново. */
+const STORE_KEY = 'sk100.game.v2';
 const TIME_MS = 1300;
 const MAX_DEPTH = 11;
 

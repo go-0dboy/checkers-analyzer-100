@@ -246,11 +246,13 @@ function BoardView({
       {/* поля + координаты внутри доски */}
       <div className="absolute inset-0 grid grid-cols-10 grid-rows-10">
         {Array.from({ length: 100 }, (_, i) => {
-          const r = (i / 10) | 0; const c = i % 10;
+          /* sr/sc — экранные координаты, r/c — board (с учётом переворота).
+             Единый маппинг: экран ↔ доска, как у шашек, стрелок и кликов. */
+          const sr = (i / 10) | 0; const sc = i % 10;
+          const r = flipped ? 9 - sr : sr;
+          const c = flipped ? 9 - sc : sc;
           const n = sq(r, c);
           const dark = (r + c) % 2 === 1;
-          const rr = flipped ? 9 - r : r;
-          const cc = flipped ? 9 - c : c;
           const isLast = lastMove !== null && (lastMove.from === n || lastMove.to === n);
           const isSel = selected === n;
           return (
@@ -258,11 +260,11 @@ function BoardView({
               {dark && showNums && (
                 <span className="sq-num">{n}</span>
               )}
-              {dark && showNums && cc === 0 && (
-                <span className="sq-coord">{flipped ? rr + 1 : 10 - rr}</span>
+              {dark && showNums && sc === 0 && (
+                <span className="sq-coord">{10 - r}</span>
               )}
-              {dark && showNums && rr === 9 && (
-                <span className="sq-coord sq-coord-file">{FILES[cc]}</span>
+              {dark && showNums && sr === 9 && (
+                <span className="sq-coord sq-coord-file">{FILES[c]}</span>
               )}
               {isLast && <span className="pointer-events-none absolute inset-0 bg-acc/20" />}
               {isSel && <span className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-acc" />}

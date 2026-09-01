@@ -4,7 +4,7 @@
  * Оценки — в сотых долях шашки, negamax (от стороны хода).
  * ============================================================ */
 
-import { type Pos, type Move, applyMove, generateMoves, rc } from './core';
+import { type Pos, type Move, applyMove, generateMoves, rc, sq } from './core';
 
 export interface Candidate { move: Move; score: number }
 
@@ -67,8 +67,8 @@ function kingMob(b: Int8Array, n: number): number {
   for (const [dr, dc] of DIRS) {
     let r1 = r + dr; let c1 = c + dc;
     while (r1 >= 0 && r1 < 10 && c1 >= 0 && c1 < 10) {
-      const nn = r1 * 5 + ((c1 + 1) >> 1);
-      if ((r1 + c1) % 2 === 0 || b[nn] !== 0) break;
+      if ((r1 + c1) % 2 === 0) break;
+      if (b[sq(r1, c1)] !== 0) break;
       m += 2; r1 += dr; c1 += dc;
     }
   }
