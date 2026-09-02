@@ -135,18 +135,7 @@ body, .panel, .sq-dark, .sq-light, .board-frame, .chip, .piece-disc, .theme-card
   line-height: 1;
   color: rgba(255, 255, 255, 0.32);
 }
-.sq-coord {
-  pointer-events: none;
-  position: absolute;
-  left: 6%;
-  bottom: 6%;
-  font-family: var(--font-mono);
-  font-size: clamp(6px, 1.6vmin, 11px);
-  font-weight: 700;
-  line-height: 1;
-  color: rgba(255, 255, 255, 0.45);
-}
-.sq-coord-file { left: auto; right: 6%; }
+
 
 /* ---------- шашки ---------- */
 .piece-layer {

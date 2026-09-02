@@ -214,7 +214,6 @@ function SettingsPanel({
 
 /* ================= доска ================= */
 
-const FILES = 'abcdefghij';
 
 function Crown() {
   return (
@@ -349,8 +348,6 @@ function BoardView({
           return (
             <button key={i} type="button" onClick={() => onSquare(n)} className="sq-dark relative block h-full w-full">
               {showNums && <span className="sq-num">{n}</span>}
-              {showNums && sc === 0 && <span className="sq-coord">{10 - r}</span>}
-              {showNums && sr === 9 && <span className="sq-coord sq-coord-file">{FILES[c]}</span>}
               {isLast && <span className="pointer-events-none absolute inset-0 bg-acc/20" />}
               {isSel && <span className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-acc" />}
               {destQuiet.has(n) && (
@@ -574,9 +571,7 @@ function AnalysisPanel({
 
       {s.showArrows && engine.candidates.length > 0 && !stale && (
         <div className="mt-3">
-          <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-[.18em] text-dim">
-            Кандидаты · касание — ход, наведение — стрелка
-          </div>
+          <div className="sr-only">Кандидаты</div>
           <ul className="divide-y divide-white/[.06] overflow-hidden rounded-lg border border-white/10">
             {engine.candidates.map((c, i) => {
               const sc = (c.score * pos.side) / 100;
@@ -863,7 +858,7 @@ export default function App() {
   return (
     <div className="min-h-dvh">
       {/* шапка */}
-      <header className="relative z-50 border-b border-white/[.07] bg-pan/80 backdrop-blur-sm">
+      <header className="relative z-50 border-b border-white/[.07] bg-pan/80 pt-[env(safe-area-inset-top)] backdrop-blur-sm">
         <div className="mx-auto flex max-w-[1120px] items-center gap-2.5 px-3 py-2.5 sm:gap-3 sm:px-4">
           <Logo />
           <div className="min-w-0">
@@ -976,15 +971,8 @@ export default function App() {
         </div>
       </main>
 
-      <footer className="border-t border-white/[.06] pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4">
-        <div className="mx-auto flex max-w-[1120px] flex-wrap items-center gap-x-3 gap-y-1 px-3 text-[10px] text-dim sm:px-4">
-          <span className="font-display font-bold tracking-[.14em]">СТОКЛЕТКА</span>
-          <span>правила ФМЖД</span>
-          <span>движок α-β · воркер</span>
-          <span>база фигур</span>
-          <span className="ml-auto font-mono">FEN · PDN</span>
-        </div>
-      </footer>
+      {/* пустой отступ под жестовую панель (без текста) */}
+      <div className="h-[calc(1rem+env(safe-area-inset-bottom))]" aria-hidden="true" />
 
       {g.hint && (
         <div className="toast-in pointer-events-none fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] left-1/2 z-50 flex items-center gap-2 rounded-lg border border-acc/50 bg-pan/95 px-4 py-2.5 text-xs font-semibold text-acc2 shadow-[0_10px_30px_rgba(0,0,0,.5)] backdrop-blur-sm">
