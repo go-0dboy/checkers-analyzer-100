@@ -32,7 +32,7 @@ try {
 
 const svg = readFileSync(SVG_PATH);
 /* плотность 300 dpi — растеризация вектора без размытия на крупных размерах */
-const raster = (size) => sharp(svg, { density: 300 }).resize(size, size).png();
+const raster = (size) => sharp(svg, { density: 300 }).resize(size, size).png().toBuffer();
 
 const ANDROID_SIZES = {
   'mipmap-mdpi': 48,
@@ -61,6 +61,9 @@ async function writeIcon(file, size) {
     buf = await sharp(svg, { density: 300 }).resize(size, size).webp({ quality: 92 }).toBuffer();
   } else {
     buf = await raster(size);
+  }
+  if (!Buffer.isBuffer(buf)) {
+    throw new Error(`sharp вернул не Buffer для ${file} (получен ${buf?.constructor?.name})`);
   }
   writeFileSync(file, buf);
 }

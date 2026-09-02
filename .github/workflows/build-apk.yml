@@ -75,42 +75,6 @@ jobs:
       - name: Иконки приложения
         run: node scripts/apply-icons.mjs
 
-      # Фирменная иконка: assets/app-icon.svg → PNG всех плотностей
-      # (ImageMagick с RSVG предуставлен на ubuntu-раннерах).
-      - name: "Фирменные иконки приложения"
-        run: |
-          ICON=assets/app-icon.svg
-          RES=android/app/src/main/res
-          if [ -f "$ICON" ]; then
-            convert -background none "$ICON" -resize 48x48    "$RES/mipmap-mdpi/ic_launcher.png"
-            convert -background none "$ICON" -resize 72x72    "$RES/mipmap-hdpi/ic_launcher.png"
-            convert -background none "$ICON" -resize 96x96    "$RES/mipmap-xhdpi/ic_launcher.png"
-            convert -background none "$ICON" -resize 144x144  "$RES/mipmap-xxhdpi/ic_launcher.png"
-            convert -background none "$ICON" -resize 192x192  "$RES/mipmap-xxxhdpi/ic_launcher.png"
-            for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-              cp "$RES/mipmap-$d/ic_launcher.png" "$RES/mipmap-$d/ic_launcher_round.png"
-            done
-            # адаптивная иконка (API 26+): фон-цвет + наш PNG-foreground
-            rm -f "$RES/drawable/ic_launcher_foreground.xml"
-            mkdir -p "$RES/drawable-xxxhdpi"
-            convert -background none "$ICON" -resize 432x432 "$RES/drawable-xxxhdpi/ic_launcher_fg.png"
-            printf '%s\n' \
-              '<?xml version="1.0" encoding="utf-8"?>' \
-              '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">' \
-              '  <background android:drawable="@color/ic_launcher_background"/>' \
-              '  <foreground android:drawable="@drawable/ic_launcher_fg"/>' \
-              '</adaptive-icon>' > "$RES/mipmap-anydpi-v26/ic_launcher.xml"
-            cp "$RES/mipmap-anydpi-v26/ic_launcher.xml" "$RES/mipmap-anydpi-v26/ic_launcher_round.xml"
-            printf '%s\n' \
-              '<?xml version="1.0" encoding="utf-8"?>' \
-              '<resources>' \
-              '  <color name="ic_launcher_background">#0B1416</color>' \
-              '</resources>' > "$RES/values/ic_launcher_background.xml"
-            echo "::notice::Фирменные иконки установлены"
-          else
-            echo "::warning::assets/app-icon.svg не найден — остаются стандартные иконки"
-          fi
-
       # Capacitor 7 требует JDK 21 (source/target compatibility 21),
       # с JDK 17 падает «invalid source release: 21».
       - name: JDK 21 (Temurin) — обязательное требование Capacitor 7
