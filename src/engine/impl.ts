@@ -22,6 +22,8 @@ export interface GoMsg {
   startFen: string;
   timeMs: number;
   maxDepth: number;
+  /** «человеческий стиль»: среди равных ходов выбирать типично человеческий */
+  humanStyle?: boolean;
 }
 
 export interface EngineResult {
@@ -52,49 +54,57 @@ async function runEngine(msg: GoMsg, post: (m: unknown) => void): Promise<void> 
   const mInfo = materialInfo(pos.b);
   const tb = mInfo.total <= 9 ? materialVerdict(mInfo) : null;
 
-  /* дебютная книга: мгновенный ответ по теории */
-  if (msg.startFen === START_FEN && msg.history.length <= 26) {
-    const hit = bookLookup(msg.history);
-    if (hit && findMove(legal, hit.from, hit.to)) {
-      post({
-        t: 'done', id: msg.id,
-        best: { from: hit.from, to: hit.to },
-        score: null, depth: 0, nodes: 0, nps: 0,
-        ms: Math.max(1, Math.round(performance.now() - t0)),
-        candidates: [], pv: [{ from: hit.from, to: hit.to }],
-        mate: false, book: hit.name, tb,
-      });
-      return;
-    }
-  }
-
   const token = { cancelled: false };
   activeToken = token;
 
   const res = await analyze(
     pos,
-    { timeMs: msg.timeMs, maxDepth: msg.maxDepth },
+    { timeMs: msg.timeMs, maxDepth: msg.maxDepth, humanStyle: !!msg.humanStyle },
     (p) => post({ t: 'info', id: msg.id, depth: p.depth, score: p.score, nodes: p.nodes }),
     token,
   );
 
   if (token.cancelled) return;
 
+  /* Позиционная дебютная книга: люди в начале играют по теории,
+     поэтому её ход — лучший ответ на вопрос «что сделал бы игрок». */
+  let bookName: string | null = null;
+  let best = res.best ? { from: res.best.from, to: res.best.to } : null;
+  let candidates = res.candidates.map((c) => ({
+    from: c.move.from, to: c.move.to, caps: c.move.captures.length, score: c.score,
+  }));
+
+  const hit = bookLookup(msg.fen);
+  if (hit) {
+    const legalBook = hit.moves.filter((bm) => findMove(legal, bm.from, bm.to));
+    if (legalBook.length > 0) {
+      bookName = hit.name;
+      const bm = legalBook[0];
+      const bmFull = findMove(legal, bm.from, bm.to)!;
+      if (msg.humanStyle) {
+        best = { from: bm.from, to: bm.to };
+        const bmScore = candidates.find((c) => c.from === bm.from && c.to === bm.to)?.score ?? res.score;
+        candidates = [
+          { from: bm.from, to: bm.to, caps: bmFull.captures.length, score: bmScore },
+          ...candidates.filter((c) => !(c.from === bm.from && c.to === bm.to)),
+        ];
+      }
+    }
+  }
+
   const ms = Math.max(1, Math.round(performance.now() - t0));
   post({
     t: 'done', id: msg.id,
-    best: res.best ? { from: res.best.from, to: res.best.to } : null,
+    best,
     score: res.best ? res.score : null,
     depth: res.depth,
     nodes: res.nodes,
     nps: Math.round((res.nodes / ms) * 1000),
     ms,
-    candidates: res.candidates.map((c) => ({
-      from: c.move.from, to: c.move.to, caps: c.move.captures.length, score: c.score,
-    })),
+    candidates,
     pv: res.pv.map((m) => ({ from: m.from, to: m.to })),
     mate: res.mate,
-    book: null,
+    book: bookName,
     tb,
   });
 }
