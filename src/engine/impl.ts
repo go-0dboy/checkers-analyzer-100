@@ -113,13 +113,19 @@ const scope = self as unknown as {
 if (typeof document === 'undefined' && typeof scope.postMessage === 'function') {
   scope.onmessage = (e: MessageEvent) => {
     const d = e.data as GoMsg | { t: 'stop' };
-    if (d.t === 'go') void runEngine(d, (m) => scope.postMessage!(m));
-    else { if (activeToken) activeToken.cancelled = true; }
+    if (d.t === 'go') {
+      /* новый запрос (или реальный ход после пондеринга) отменяет прежний расчёт */
+      if (activeToken) activeToken.cancelled = true;
+      void runEngine(d, (m) => scope.postMessage!(m));
+    } else {
+      if (activeToken) activeToken.cancelled = true;
+    }
   };
 }
 
 /* ---------- фолбэк в главном потоке ---------- */
 export function runDirect(msg: GoMsg, post: (m: unknown) => void): void {
+  if (activeToken) activeToken.cancelled = true;
   void runEngine(msg, post);
 }
 

@@ -16,8 +16,8 @@ export const DEFAULT_SETTINGS: Settings = {
   autoCapture: false,
   captureDelay: 700,
   autoSingle: false,
-  engineDepth: 9,
-  engineTime: 1300,
+  engineDepth: 11,
+  engineTime: 1500,
 };
 
 const KEY = 'sk100.settings.v1';

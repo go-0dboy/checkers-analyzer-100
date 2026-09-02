@@ -197,7 +197,7 @@ function SettingsPanel({
       <div className="pt-2">
         <div className="mb-1 font-display text-[9px] font-bold tracking-[.22em] text-dim">ДВИЖОК</div>
         <SliderRow
-          label="Глубина анализа" value={s.engineDepth} min={4} max={12} step={1}
+          label="Глубина анализа" value={s.engineDepth} min={4} max={16} step={1}
           fmt={(v) => `${v} п/х`} onChange={(v) => set({ engineDepth: v })}
         />
         <SliderRow
@@ -205,7 +205,8 @@ function SettingsPanel({
           fmt={(v) => `${(v / 1000).toFixed(1)} с`} onChange={(v) => set({ engineTime: v })}
         />
         <p className="mt-1 text-[10px] leading-relaxed text-dim">
-          Счёт идёт в отдельном потоке по протоколу go / info / done — интерфейс не блокируется.
+          Счёт идёт в отдельном потоке (PVS + LMR, хеш-таблица между позициями). Лучший ход
+          «пондерится» заранее: сыграете его — анализ отдаётся мгновенно.
         </p>
       </div>
     </div>
@@ -923,7 +924,7 @@ export default function App() {
           <div className="ml-auto hidden items-center gap-2 rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5 md:flex">
             <Dot color={g.engine.thinking ? 'var(--accent)' : '#5fb287'} pulse={g.engine.thinking} />
             <span className="font-mono text-[11px] text-mut">
-              движок · воркер{g.engine.thinking ? ` · d${g.engine.depth || 1}…` : g.engine.depth ? ` · d${g.engine.depth}` : ''}
+              движок 0.2 · PVS+LMR{g.engine.thinking ? ` · d${g.engine.depth || 1}…` : g.engine.depth ? ` · d${g.engine.depth}` : ''}
             </span>
           </div>
           <div className="ml-auto flex items-center gap-1.5 md:ml-0">
