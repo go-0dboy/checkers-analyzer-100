@@ -11,7 +11,7 @@ import {
 } from 'react';
 import { useGame, type GameApi } from './state/useGame';
 import { type Move, type Pos, type Side, WHITE, rc, sq, moveNotation, tempi } from './engine/core';
-import { type TbVerdict } from './engine/tablebase';
+import { type TbVerdict, materialInfo } from './engine/tablebase';
 import { toPDN, SAMPLE_PDN } from './engine/pdn';
 import { THEMES, applyTheme, initialTheme, type ThemeId } from './themes';
 import { loadSettings, saveSettings, type Settings } from './state/settings';
@@ -462,19 +462,72 @@ function EvalBar({ pos }: { pos: Pos }) {
 
 /* ================= панель анализа ================= */
 
-function TbBlock({ tb }: { tb: TbVerdict }) {
-  const label = tb.result === 1 ? 'Выигрыш белых' : tb.result === -1 ? 'Выигрыш чёрных' : 'Ничья';
-  const tone = tb.result === 0
-    ? 'border-white/15 bg-white/[.05] text-body'
-    : tb.result === 1
-      ? 'border-[#5fb287]/45 bg-[#5fb287]/10 text-[#8ed0ae]'
-      : 'border-[#d9534a]/45 bg-[#d9534a]/10 text-[#e5938b]';
+/* Склонение существительных: 1 шашка, 2 шашки, 5 шашек */
+const plural = (n: number, [one, few, many]: [string, string, string]): string => {
+  const m10 = n % 10; const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
+};
+const menStr = (n: number): string => (n ? `${n} ${plural(n, ['шашка', 'шашки', 'шашек'])}` : '');
+const kingStr = (n: number): string => (n ? `${n} ${plural(n, ['дамка', 'дамки', 'дамок'])}` : '');
+const sideStr = (men: number, kings: number): string =>
+  [menStr(men), kingStr(kings)].filter(Boolean).join(' · ') || 'нет фигур';
+
+/* Мини-кружок шашки для строки материала */
+function MatDot({ king, light }: { king?: boolean; light: boolean }) {
   return (
-    <div className={`mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg border px-3 py-2 ${tone}`}>
-      <span className="chip chip-amber shrink-0">БАЗА ФИГУР</span>
-      <span className="text-xs font-semibold">{label}</span>
-      <span className="w-full text-[10px] opacity-80 sm:ml-auto sm:w-auto">{tb.note}</span>
-      <span className="chip shrink-0">{tb.confidence === 'theory' ? 'теория' : 'практика'}</span>
+    <span
+      className={`inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full ${
+        light
+          ? 'bg-[#eadbb4] shadow-[inset_0_0_0_1px_rgba(120,90,40,.4)]'
+          : 'bg-[#262b31] shadow-[inset_0_0_0_1px_rgba(235,255,250,.3)]'
+      }`}
+    >
+      {king && (
+        <svg viewBox="0 0 24 24" className="h-2 w-2">
+          <path d="M4 17h16l1.5-8-4.5 3L12 5l-5 7-4.5-3z" fill="#e8b04b" />
+        </svg>
+      )}
+    </span>
+  );
+}
+
+function TbBlock({ tb, b }: { tb: TbVerdict; b: Int8Array }) {
+  const m = materialInfo(b);
+  const label = tb.result === 1 ? 'Выигрыш белых' : tb.result === -1 ? 'Выигрыш чёрных' : 'Ничья';
+  const conf = tb.confidence === 'theory' ? 'точная теория' : 'практически решено';
+  const tone = tb.result === 0
+    ? 'border-white/15 bg-white/[.05]'
+    : tb.result === 1
+      ? 'border-[#5fb287]/45 bg-[#5fb287]/10'
+      : 'border-[#d9534a]/45 bg-[#d9534a]/10';
+  const toneText = tb.result === 0 ? 'text-body' : tb.result === 1 ? 'text-[#8ed0ae]' : 'text-[#e5938b]';
+  return (
+    <div className={`mt-3 rounded-lg border px-3 py-2.5 ${tone}`}>
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+        <span className="chip chip-amber shrink-0">ЭНДШПИЛЬ · БАЗА ФИГУР</span>
+        <span className={`text-xs font-bold ${toneText}`}>{label}</span>
+        <span className={`ml-auto text-[9px] uppercase tracking-[.14em] ${toneText} opacity-80`}>{conf}</span>
+      </div>
+      {/* состав материала, из которого сделан вывод */}
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-mut">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="flex items-center gap-0.5">
+            {Array.from({ length: m.wM }, (_, i) => <MatDot key={`wm${i}`} light />)}
+            {Array.from({ length: m.wK }, (_, i) => <MatDot key={`wk${i}`} light king />)}
+          </span>
+          белые {sideStr(m.wM, m.wK)}
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="flex items-center gap-0.5">
+            {Array.from({ length: m.bM }, (_, i) => <MatDot key={`bm${i}`} light={false} />)}
+            {Array.from({ length: m.bK }, (_, i) => <MatDot key={`bk${i}`} light={false} king />)}
+          </span>
+          чёрные {sideStr(m.bM, m.bK)}
+        </span>
+      </div>
+      <div className={`mt-1 text-[10px] leading-snug ${toneText} opacity-90`}>{tb.note}</div>
     </div>
   );
 }
@@ -542,7 +595,7 @@ function AnalysisPanel({
 
       {thinking && <div className="shimmer mt-2 h-0.5 w-full overflow-hidden rounded-full opacity-70" />}
 
-      {tb && <TbBlock tb={tb} />}
+      {tb && <TbBlock tb={tb} b={pos.b} />}
 
       {engine.best && !stale ? (
         <button
