@@ -1,0 +1,27 @@
+/*
+ * Gradle init-скрипт: подключает релизную подпись из переменных окружения.
+ * Используется только в CI, когда заданы секреты ANDROID_KEYSTORE_*.
+ *
+ * Запуск:
+ *   KEYSTORE_FILE=... ./gradlew -I ../.github/ci/signing.init.gradle assembleRelease
+ */
+allprojects {
+    afterEvaluate { project ->
+        if (project.hasProperty('android')) {
+            def keystorePath = System.getenv('KEYSTORE_FILE')
+            if (keystorePath) {
+                project.android.signingConfigs.create('ciRelease') {
+                    storeFile project.file(keystorePath)
+                    storePassword System.getenv('KEYSTORE_PASSWORD')
+                    keyAlias System.getenv('KEY_ALIAS')
+                    keyPassword System.getenv('KEY_PASSWORD')
+                }
+                project.android.buildTypes.release.signingConfig =
+                        project.android.signingConfigs.ciRelease
+                println "[ci] Релизная подпись подключена: ${keystorePath}"
+            } else {
+                println "[ci] KEYSTORE_FILE не задан — собираю без подписи"
+            }
+        }
+    }
+}

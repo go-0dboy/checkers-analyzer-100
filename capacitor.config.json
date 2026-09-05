@@ -1,0 +1,13 @@
+{
+  "appId": "ru.stokeletka.app",
+  "appName": "СтоКлетка",
+  "webDir": "dist",
+  "backgroundColor": "#0b1416",
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#0b1416"
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
