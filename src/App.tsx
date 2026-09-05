@@ -1,9 +1,9 @@
 /* ============================================================
- * СтоКлетка — мобильный анализатор международных шашек
- * (100 клеток, правила ФМЖД). Mobile-first: доска, анализ через
- * Scan 3.1 WASM (при наличии) или встроенный движок PVS+LMR,
- * обучаемая нейросеть NNUE, база фигур, дебютная книга, FEN/PDN,
- * течение партии, темы оформления.
+ * СтоКлетка — инструмент разбора международных шашек (100 клеток,
+ * ФМЖД). Дерево ходов с ветвлениями, комментарии и оценки ходов
+ * (PDN 3.0), база партий в IndexedDB, расстановка позиций и FEN,
+ * анализ (Scan WASM → встроенный движок), обучаемая нейросеть.
+ * Mobile-first: нижняя навигация, крупные зоны касания.
  * ============================================================ */
 
 import {
@@ -11,12 +11,13 @@ import {
   type MouseEvent as ReactMouseEvent, type ReactNode, type SVGProps,
 } from 'react';
 import {
-  type Move, type Pos, type Side, WHITE, rc, sq, moveNotation, tempi, positionsFrom,
+  type Move, type Pos, type Side, WHITE, rc, sq, tempi,
 } from './engine/core';
 import { materialInfo } from './engine/tablebase';
-import { toPDN, SAMPLE_PDN } from './engine/pdn';
+import { SAMPLE_PDN } from './engine/pdn';
 import { loadSettings, saveSettings, type Settings } from './state/settings';
 import { useGame, type GameApi, type CandidateLite } from './state/useGame';
+import { NAG_SYMBOLS, nodeSan, pathPositions, type TreeNode } from './state/tree';
 import { THEMES, applyTheme, initialTheme, type ThemeId } from './themes';
 
 /* ================= иконки (inline SVG) ================= */
@@ -45,6 +46,12 @@ const IPalette = (p: IP) => <svg {...base(p)}><circle cx="12" cy="12" r="9" /><c
 const IGear = (p: IP) => <svg {...base(p)}><circle cx="12" cy="12" r="3.2" /><path d="M19.4 15a1.7 1.7 0 00.34 1.87l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.7 1.7 0 00-1.87-.34 1.7 1.7 0 00-1 1.55V21a2 2 0 11-4 0v-.09a1.7 1.7 0 00-1-1.55 1.7 1.7 0 00-1.87.34l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.7 1.7 0 00.34-1.87 1.7 1.7 0 00-1.55-1H3a2 2 0 110-4h.09a1.7 1.7 0 001.55-1 1.7 1.7 0 00-.34-1.87l-.06-.06a2 2 0 112.83-2.83l.06.06a1.7 1.7 0 001.87.34h.09a1.7 1.7 0 001-1.55V3a2 2 0 114 0v.09a1.7 1.7 0 001 1.55 1.7 1.7 0 001.87-.34l.06-.06a2 2 0 112.83 2.83l-.06.06a1.7 1.7 0 00-.34 1.87v.09a1.7 1.7 0 001.55 1H21a2 2 0 110 4h-.09a1.7 1.7 0 00-1.55 1z" /></svg>;
 const ITrash = (p: IP) => <svg {...base(p)}><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-9 0l1 12a2 2 0 002 2h6a2 2 0 002-2l1-12" /></svg>;
 const IBolt = (p: IP) => <svg {...base(p)}><path d="M13 2L4.5 13.5H11L9.5 22 19 10h-6.5z" fill="currentColor" stroke="none" /></svg>;
+const IChipIc = (p: IP) => <svg {...base(p)}><rect x="6" y="6" width="12" height="12" rx="1.5" /><rect x="10" y="10" width="4" height="4" /><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" /></svg>;
+const IList = (p: IP) => <svg {...base(p)}><path d="M8 6h13M8 12h13M8 18h13" /><circle cx="4" cy="6" r="1" fill="currentColor" stroke="none" /><circle cx="4" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="4" cy="18" r="1" fill="currentColor" stroke="none" /></svg>;
+const IDb = (p: IP) => <svg {...base(p)}><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5" /><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3" /></svg>;
+const IGrid = (p: IP) => <svg {...base(p)}><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M3 15h18M9 3v18M15 3v18" /></svg>;
+const ISave = (p: IP) => <svg {...base(p)}><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" /><path d="M17 21v-8H7v8M7 3v5h8" /></svg>;
+const IBranch = (p: IP) => <svg {...base(p)}><circle cx="6" cy="5" r="2.2" /><circle cx="6" cy="19" r="2.2" /><circle cx="18" cy="9" r="2.2" /><path d="M6 7.2v9.6M6 12c0-2 2-3 4.5-3H15" /></svg>;
 
 /* ================= мелкие блоки UI ================= */
 
@@ -371,12 +378,16 @@ function BoardView({
               const n = sq(r, c);
               const dark = (r + c) % 2 === 1;
               if (!dark) return <div key={i} className="sq-light relative block h-full w-full" />;
-              const isLast = lastMove !== null && (lastMove.from === n || lastMove.to === n);
+              const isLastFrom = lastMove !== null && lastMove.from === n;
+              const isLastTo = lastMove !== null && lastMove.to === n;
               const isSel = selected === n;
               return (
                 <button key={i} type="button" onClick={() => onSquare(n)} className="sq-dark relative block h-full w-full">
                   {showNums && <span className="sq-num">{n}</span>}
-                  {isLast && <span className="pointer-events-none absolute inset-0 bg-acc/20" />}
+                  {isLastFrom && <span className="pointer-events-none absolute inset-0 bg-acc/20" />}
+                  {isLastTo && (
+                    <span className="pointer-events-none absolute inset-0 bg-acc/35 shadow-[inset_0_0_0_2px_color-mix(in_oklab,var(--accent)_65%,transparent)]" />
+                  )}
                   {isSel && <span className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-acc" />}
                   {destQuiet.has(n) && (
                     <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -465,8 +476,6 @@ function EvalBar({ pos }: { pos: Pos }) {
   );
 }
 
-/* ================= живое свечение за доской ================= */
-
 function BoardGlow({ pos }: { pos: Pos }) {
   const mat = useMemo(() => {
     let m = 0;
@@ -485,13 +494,13 @@ function BoardGlow({ pos }: { pos: Pos }) {
   return <div className="board-glow" style={style} aria-hidden="true" />;
 }
 
-/* ================= течение партии (кликабельный график) ================= */
+/* ================= течение партии ================= */
 
-function EvalChart({ start, moves, ply, goto }: {
-  start: Pos; moves: Move[]; ply: number; goto: (p: number) => void;
+function EvalChart({ start, pathNodes, ply, gotoPly }: {
+  start: Pos; pathNodes: TreeNode[]; ply: number; gotoPly: (p: number) => void;
 }) {
   const evals = useMemo(() => {
-    const poss = positionsFrom(start, moves, moves.length);
+    const poss = pathPositions(start, pathNodes);
     return poss.map((p) => {
       let m = 0;
       for (let n = 1; n <= 50; n++) {
@@ -501,7 +510,7 @@ function EvalChart({ start, moves, ply, goto }: {
       }
       return m;
     });
-  }, [start, moves]);
+  }, [start, pathNodes]);
 
   const W = 560; const H = 64; const MID = H / 2; const AMP = H / 2 - 6;
   const n = evals.length;
@@ -516,7 +525,7 @@ function EvalChart({ start, moves, ply, goto }: {
     const r = e.currentTarget.getBoundingClientRect();
     const px = ((e.clientX - r.left) / r.width) * W;
     const idx = Math.round((px / W) * (n - 1));
-    goto(Math.max(0, Math.min(n - 1, idx)));
+    gotoPly(Math.max(0, Math.min(n - 1, idx)));
   };
 
   return (
@@ -723,88 +732,364 @@ function AnalysisPanel({
   );
 }
 
-/* ================= лента ходов ================= */
+/* ================= дерево ходов (PDN 3.0) ================= */
 
-function MovesPanel({ game }: { game: GameApi }) {
-  const { moves, ply, goto } = game;
-  const activeRef = useRef<HTMLButtonElement | null>(null);
-  useEffect(() => { activeRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [ply]);
+function MoveChip({ node, active, onGoto }: { node: TreeNode; active: boolean; onGoto: (id: string) => void }) {
+  const hasComment = node.comment.trim().length > 0;
+  return (
+    <button
+      type="button"
+      onClick={() => onGoto(node.id)}
+      className={`relative rounded-md border px-1.5 py-1 font-mono text-[13px] leading-none transition-all duration-120 active:scale-[.93] sm:text-sm ${
+        active
+          ? 'border-acc/70 bg-acc/18 font-bold text-acc2 shadow-[0_0_10px_color-mix(in_oklab,var(--accent)_20%,transparent)]'
+          : 'border-white/8 bg-white/[.04] text-body hover:border-white/20 hover:bg-white/[.08]'
+      }`}
+    >
+      {nodeSan(node)}
+      {hasComment && <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-[#5fb287]" />}
+    </button>
+  );
+}
 
-  const rows: { no: number; w?: Move; wPly: number; b?: Move; bPly: number }[] = [];
-  for (let i = 0; i < moves.length; i += 2) {
-    rows.push({ no: i / 2 + 1, w: moves[i], wPly: i + 1, b: moves[i + 1], bPly: i + 2 });
+function MovesLine({
+  node, num, blackNext, curId, onGoto, depth,
+}: {
+  node: TreeNode; num: number; blackNext: boolean;
+  curId: string; onGoto: (id: string) => void; depth: number;
+}) {
+  /* линия, начинающаяся с хода node; num/blackNext — контекст нотации */
+  const elements: ReactNode[] = [];
+  let cur: TreeNode | null = node;
+  let n = num;
+  let black = blackNext;
+  let guard = 0;
+  while (cur && guard++ < 500) {
+    const label = black ? `${n}…` : `${n}.`;
+    elements.push(
+      <span key={cur.id} className="inline-flex items-center gap-1">
+        <span className="font-mono text-[10px] text-dim">{label}</span>
+        <MoveChip node={cur} active={cur.id === curId} onGoto={onGoto} />
+      </span>,
+    );
+    /* варианты — альтернативы этому ходу */
+    for (let i = 1; i < cur.children.length; i++) {
+      elements.push(
+        <span key={`v${cur.children[i].id}`} className={`var-wrap ${depth > 0 ? 'var-deep' : ''}`}>
+          <span className="var-paren">(</span>
+          <MovesLine node={cur.children[i]} num={n} blackNext={black} curId={curId} onGoto={onGoto} depth={depth + 1} />
+          <span className="var-paren">)</span>
+        </span>,
+      );
+    }
+    const nextNode: TreeNode | null = cur.children[0] ?? null;
+    if (nextNode) {
+      if (black) n += 1;
+      black = !black;
+    }
+    cur = nextNode;
   }
+  return <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1.5">{elements}</span>;
+}
+
+function MovesTab({ game }: { game: GameApi }) {
+  const { root, curNode, path, gotoNode, setComment, toggleNag, movesTotal } = game;
+  const [copied, setCopied] = useState(false);
+  const ply = path.length - 1;
+
+  const download = () => {
+    const pdn = game.exportPDN();
+    const url = URL.createObjectURL(new Blob([pdn], { type: 'text/plain;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = 'partiya.pdn'; a.click();
+    URL.revokeObjectURL(url);
+  };
+  const copyPdn = async () => {
+    try {
+      await navigator.clipboard.writeText(game.exportPDN());
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch { /* noop */ }
+  };
 
   return (
     <section className="panel flex flex-col p-3.5 sm:p-4">
-      <div className="flex items-baseline justify-between">
-        <h2 className="font-display text-[10px] font-bold tracking-[.22em] text-mut">ПАРТИЯ</h2>
-        <span className="font-mono text-[11px] text-dim">ход {ply}/{moves.length}</span>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="font-display text-[10px] font-bold tracking-[.22em] text-mut">ХОДЫ · PDN 3.0</h2>
+        <div className="flex items-center gap-1.5">
+          <TBtn title="Копировать PDN" onClick={() => void copyPdn()} className="h-8 px-2">
+            {copied ? <ICheck size={13} /> : <ICopy size={13} />}
+          </TBtn>
+          <TBtn title="Скачать .pdn" onClick={download} className="h-8 px-2">
+            <IDown size={13} /><span className="text-[11px]">.pdn</span>
+          </TBtn>
+        </div>
       </div>
-      <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-white/10 scroll-slim sm:max-h-80">
-        <button
-          type="button" ref={ply === 0 ? activeRef : undefined} onClick={() => goto(0)}
-          className={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-white/[.06] ${ply === 0 ? 'bg-acc/12' : ''}`}
-        >
-          <span className="w-8 font-mono text-[11px] text-dim">—</span>
-          <span className="text-xs text-mut">начальная позиция{ply === 0 ? ' · сейчас' : ''}</span>
-        </button>
-        {rows.map((row) => (
-          <div key={row.no} className="flex items-stretch border-t border-white/[.05]">
-            <span className="flex w-9 shrink-0 items-center justify-center font-mono text-[11px] text-dim">{row.no}.</span>
-            <button
-              type="button" ref={ply === row.wPly ? activeRef : undefined} onClick={() => goto(row.wPly)}
-              className={`flex-1 px-2 py-2 text-left font-mono text-sm transition-colors hover:bg-white/[.07] active:bg-acc/20 ${
-                ply === row.wPly ? 'bg-acc/15 font-bold text-acc2' : 'text-body'}`}
-            >
-              {row.w ? moveNotation(row.w) : ''}
-            </button>
-            <button
-              type="button" ref={ply === row.bPly ? activeRef : undefined} onClick={() => row.b && goto(row.bPly)}
-              className={`flex-1 px-2 py-2 text-left font-mono text-sm transition-colors hover:bg-white/[.07] active:bg-acc/20 ${
-                ply === row.bPly ? 'bg-acc/15 font-bold text-acc2' : 'text-body'} ${row.b ? '' : 'cursor-default opacity-30'}`}
-            >
-              {row.b ? moveNotation(row.b) : '…'}
-            </button>
+
+      <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-white/10 p-2.5 scroll-slim sm:max-h-64">
+        {root.children.length === 0 ? (
+          <div className="px-2 py-4 text-center text-xs text-dim">
+            Ходов пока нет — играйте на доске. Любой другой ход с середины партии создаст вариант.
           </div>
-        ))}
-        {moves.length === 0 && (
-          <div className="px-3 py-5 text-center text-xs text-dim">
-            Ходов пока нет — делайте ходы на доске или загрузите партию во вкладке «Форматы».
-          </div>
+        ) : (
+          <MovesLine
+            node={root.children[0]}
+            num={1}
+            blackNext={game.start.side !== WHITE}
+            curId={curNode.id}
+            onGoto={gotoNode}
+            depth={0}
+          />
         )}
       </div>
-      <div className="mt-2 text-[10px] leading-relaxed text-dim">
-        Ход с середины партии создаёт новый вариант — хвост отбрасывается.
+
+      <div className="mt-2 flex items-center gap-2 text-[10px] text-dim">
+        <IBranch size={13} className="text-acc2" />
+        <span>полуход {ply}/{movesTotal} · варианты — в скобках, клик по ходу — переход</span>
+      </div>
+
+      {/* редактор комментария и оценки текущего хода */}
+      <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-[.18em] text-dim">
+            {curNode.move ? `Ход ${nodeSan(curNode).replace(/[!?]+$/, '')}` : 'Стартовая позиция'}
+          </span>
+          <div className="flex items-center gap-1">
+            {[1, 2, 3, 4, 5, 6].map((nag) => {
+              const on = curNode.nags.includes(nag);
+              return (
+                <button
+                  key={nag}
+                  type="button"
+                  disabled={!curNode.move}
+                  onClick={() => toggleNag(nag)}
+                  className={`h-8 min-w-8 rounded-md border px-1 font-mono text-xs font-bold transition-all duration-120 active:scale-[.9] disabled:opacity-25 ${
+                    on
+                      ? nag === 2 || nag === 4 || nag === 6
+                        ? 'border-[#d9534a]/70 bg-[#d9534a]/15 text-[#e58a82]'
+                        : 'border-[#5fb287]/70 bg-[#5fb287]/15 text-[#8ed0ae]'
+                      : 'border-white/10 bg-white/[.04] text-mut hover:bg-white/[.09]'
+                  }`}
+                >
+                  {NAG_SYMBOLS[nag]}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <textarea
+          value={curNode.comment}
+          onChange={(e) => setComment(e.target.value)}
+          disabled={!curNode.move}
+          rows={2}
+          placeholder={curNode.move ? 'Комментарий к ходу…' : 'Комментарии прикрепляются к ходам'}
+          className="mt-2 w-full resize-y rounded-md border border-white/10 bg-black/25 px-2.5 py-2 text-xs leading-relaxed text-ink outline-none transition-colors placeholder:text-dim focus:border-acc/60 disabled:opacity-40 scroll-slim"
+        />
+        <div className="mt-1 text-[9px] text-dim">
+          {curNode.move
+            ? 'Сыграйте другой ход на доске в этой позиции — создастся вариант (ветвление).'
+            : 'Перейдите к любому ходу, чтобы комментировать его и ставить оценки ! ? !! ?? !? ?!'}
+        </div>
       </div>
     </section>
   );
 }
 
-/* ================= форматы ================= */
+/* ================= база партий (IndexedDB) ================= */
 
-function FormatsPanel({ game }: { game: GameApi }) {
-  const { fen, moves, headers, loadFenText, loadPDNText } = game;
-  const [fenInput, setFenInput] = useState('');
-  const [pdnInput, setPdnInput] = useState('');
+function DbTab({ game }: { game: GameApi }) {
+  const { dbGames, saveToDb, loadFromDb, deleteFromDb, loadPDNText } = game;
+  const [name, setName] = useState('');
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
-  const pdnText = toPDN(headers, moves, '*');
+  const [pdnInput, setPdnInput] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
 
-  const copy = async (text: string, what: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(what);
-      window.setTimeout(() => setCopied(null), 1600);
-      setMsg({ kind: 'ok', text: `${what} скопирован` });
-    } catch { setMsg({ kind: 'err', text: 'Буфер обмена недоступен' }); }
+  const resultTone = (r: string) =>
+    r === '1-0' ? 'text-ink' : r === '0-1' ? 'text-mut' : r === '1-1' ? 'text-[#8ed0ae]' : 'text-dim';
+
+  return (
+    <div className="flex flex-col gap-3.5">
+      {msg && (
+        <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
+          msg.kind === 'ok' ? 'border-[#5fb287]/40 bg-[#5fb287]/10 text-[#8ed0ae]' : 'border-[#d9534a]/40 bg-[#d9534a]/10 text-[#e5938b]'}`}>
+          {msg.kind === 'ok' ? <ICheck size={14} /> : <IWarn size={14} />}
+          {msg.text}
+        </div>
+      )}
+
+      <section className="panel p-3.5 sm:p-4">
+        <header className="mb-2 flex items-center justify-between">
+          <h2 className="font-display text-[10px] font-bold tracking-[.22em] text-mut">БАЗА ПАРТИЙ · INDEXEDDB</h2>
+          <span className="chip">{dbGames.length}</span>
+        </header>
+
+        <div className="flex gap-1.5">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Название партии…"
+            className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/25 px-3 py-2.5 text-xs text-ink outline-none transition-colors placeholder:text-dim focus:border-acc/60"
+          />
+          <TBtn accent title="Сохранить в базу" onClick={() => {
+            void saveToDb(name).then((ok) => {
+              setMsg(ok
+                ? { kind: 'ok', text: 'Партия сохранена в базу (ветвления и комментарии — внутри)' }
+                : { kind: 'err', text: 'Не удалось сохранить' });
+              if (ok) setName('');
+            });
+          }} className="shrink-0">
+            <ISave size={15} /><span className="text-xs font-semibold">Сохранить</span>
+          </TBtn>
+        </div>
+
+        <div className="mt-2.5 flex max-h-64 flex-col gap-1.5 overflow-y-auto scroll-slim">
+          {dbGames.length === 0 && (
+            <div className="rounded-lg border border-dashed border-white/12 px-3 py-5 text-center text-xs text-dim">
+              Пока пусто. Разберите партию и сохраните её — дерево ходов, варианты,
+              комментарии и оценки лягут в базу целиком.
+            </div>
+          )}
+          {dbGames.map((g) => (
+            <div key={g.id} className="group flex items-center gap-2.5 rounded-lg border border-white/8 bg-white/[.03] px-3 py-2.5 transition-colors hover:border-white/20 hover:bg-white/[.06]">
+              <button type="button" className="min-w-0 flex-1 text-left" onClick={() => {
+                const err = loadFromDb(g);
+                setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: `Загружено: ${g.name}` });
+              }}>
+                <div className="flex items-center gap-2">
+                  <span className="truncate text-xs font-semibold text-body">{g.name}</span>
+                  <span className={`font-mono text-[10px] font-bold ${resultTone(g.result)}`}>{g.result}</span>
+                  {g.annotated && <span className="chip chip-amber">разбор</span>}
+                </div>
+                <div className="mt-0.5 truncate text-[10px] text-dim">
+                  {g.white} — {g.black} · {g.moves} п/х · {new Date(g.date).toLocaleDateString('ru-RU')}
+                </div>
+              </button>
+              <TBtn title="Удалить из базы" onClick={() => void deleteFromDb(g.id)} className="h-8 w-8 px-0">
+                <ITrash size={13} />
+              </TBtn>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="panel p-3.5 sm:p-4">
+        <header className="mb-2 flex items-center justify-between">
+          <h2 className="font-display text-[10px] font-bold tracking-[.22em] text-mut">ИМПОРТ PDN</h2>
+          <span className="chip">варианты · комментарии · NAG</span>
+        </header>
+        <textarea
+          value={pdnInput}
+          onChange={(e) => setPdnInput(e.target.value)}
+          rows={5}
+          spellCheck={false}
+          placeholder={'Вставьте PDN (можно несколько партий подряд):\n1.32-28 {комментарий} 19-23 (1... 17-22) 2.28x19 ...'}
+          className="w-full resize-y rounded-lg border border-white/10 bg-black/25 px-3 py-2.5 font-mono text-xs leading-relaxed text-ink outline-none transition-colors placeholder:text-dim focus:border-acc/60 scroll-slim"
+        />
+        <input
+          ref={fileRef} type="file" accept=".pdn,.txt,text/plain" className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (!f) return;
+            const rd = new FileReader();
+            rd.onload = () => {
+              const text = String(rd.result ?? '');
+              setPdnInput(text);
+              const err = loadPDNText(text);
+              setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: 'Партия импортирована' });
+            };
+            rd.readAsText(f);
+          }}
+        />
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <TBtn accent onClick={() => {
+            const err = loadPDNText(pdnInput);
+            setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: 'Партия импортирована' });
+          }}>
+            <ILoad size={15} /><span className="text-xs font-semibold">Импортировать</span>
+          </TBtn>
+          <TBtn onClick={() => fileRef.current?.click()}>
+            <IBook size={15} /><span className="text-xs">Файл .pdn</span>
+          </TBtn>
+          <TBtn onClick={() => {
+            setPdnInput(SAMPLE_PDN);
+            const err = loadPDNText(SAMPLE_PDN);
+            setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: 'Пример с вариантом и комментарием загружен' });
+          }}>
+            <span className="text-xs">Пример</span>
+          </TBtn>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/* ================= расстановка позиции ================= */
+
+function SetupTab({ game }: { game: GameApi }) {
+  const [board, setBoard] = useState<Int8Array>(() => game.pos.b.slice());
+  const [side, setSide] = useState<Side>(game.pos.side);
+  const [fenInput, setFenInput] = useState('');
+  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const curFen = useMemo(() => {
+    let W: string[] = []; let B: string[] = [];
+    let wRun: number[] = []; let bRun: number[] = [];
+    const flushW = () => { if (wRun.length) { W.push(`${wRun[0]}-${wRun[wRun.length - 1]}`); wRun = []; } };
+    const flushB = () => { if (bRun.length) { B.push(`${bRun[0]}-${bRun[bRun.length - 1]}`); bRun = []; } };
+    for (let n = 1; n <= 50; n++) {
+      const v = board[n];
+      if (v === 1) { flushW(); wRun.push(n); }
+      else if (v === 2) { flushW(); W.push(`K${n}`); }
+      else if (v === -1) { flushB(); bRun.push(n); }
+      else if (v === -2) { flushB(); B.push(`K${n}`); }
+    }
+    flushW(); flushB();
+    return `${side === WHITE ? 'W' : 'B'}:W${W.join(',')}:B${B.join(',')}`;
+  }, [board, side]);
+
+  const cycle = (n: number) => {
+    setBoard((b) => {
+      const nb = b.slice();
+      nb[n] = nb[n] === 0 ? 1 : nb[n] === 1 ? 2 : nb[n] === 2 ? -1 : nb[n] === -1 ? -2 : 0;
+      return nb;
+    });
   };
-  const download = () => {
-    const url = URL.createObjectURL(new Blob([pdnText], { type: 'text/plain;charset=utf-8' }));
-    const a = document.createElement('a');
-    a.href = url; a.download = 'partiya.pdn'; a.click();
-    URL.revokeObjectURL(url);
-    setMsg({ kind: 'ok', text: 'partiya.pdn сохранён' });
+
+  const fromCurrent = () => { setBoard(game.pos.b.slice()); setSide(game.pos.side); setMsg(null); };
+  const clear = () => { setBoard(new Int8Array(51)); setMsg(null); };
+  const initial = () => {
+    const b = new Int8Array(51);
+    for (let n = 1; n <= 20; n++) b[n] = -1;
+    for (let n = 31; n <= 50; n++) b[n] = 1;
+    setBoard(b); setSide(WHITE); setMsg(null);
+  };
+  const apply = () => {
+    game.applySetup({ b: board.slice(), side });
+    setMsg({ kind: 'ok', text: 'Расстановка применена — партия начата с этой позиции' });
+  };
+  const loadFenInto = () => {
+    const parts = fenInput.trim().split(':');
+    if (parts.length !== 3) { setMsg({ kind: 'err', text: 'FEN должен иметь вид W:W…:B…' }); return; }
+    const b = new Int8Array(51);
+    const fill = (part: string, sgn: 1 | -1): boolean => {
+      const s = part.replace(/^[WB]/i, '');
+      if (!s) return true;
+      for (const tok of s.split(',')) {
+        const t = tok.trim();
+        if (!t) continue;
+        const king = /^K/i.test(t);
+        const nums = t.replace(/^K/i, '').split('-').map(Number);
+        if (nums.some((x) => !Number.isInteger(x) || x < 1 || x > 50)) return false;
+        const [a, z] = nums.length === 1 ? [nums[0], nums[0]] : nums;
+        for (let n = a; n <= z; n++) b[n] = sgn * (king ? 2 : 1);
+      }
+      return true;
+    };
+    if (!fill(parts[1], 1) || !fill(parts[2], -1)) { setMsg({ kind: 'err', text: 'Не удалось разобрать FEN' }); return; }
+    setBoard(b);
+    setSide(parts[0].toUpperCase() === 'B' ? -1 as Side : WHITE);
+    setMsg({ kind: 'ok', text: 'FEN загружен в расстановку — нажмите «Применить»' });
   };
 
   return (
@@ -816,77 +1101,118 @@ function FormatsPanel({ game }: { game: GameApi }) {
           {msg.text}
         </div>
       )}
+
       <section className="panel p-3.5 sm:p-4">
         <header className="mb-2 flex items-center justify-between">
-          <h2 className="font-display text-[10px] font-bold tracking-[.22em] text-mut">FEN ПОЗИЦИИ</h2>
-          <span className="chip">Liens</span>
+          <h2 className="font-display text-[10px] font-bold tracking-[.22em] text-mut">РАССТАНОВКА ПОЗИЦИИ</h2>
+          <span className="chip">касание — цикл фигур</span>
         </header>
-        <div className="flex gap-1.5">
-          <input value={fen} readOnly spellCheck={false}
-            className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/25 px-3 py-2.5 font-mono text-xs text-body outline-none" />
-          <TBtn title="Копировать FEN" onClick={() => copy(fen, 'FEN')} className="shrink-0">
-            {copied === 'FEN' ? <ICheck size={15} /> : <ICopy size={15} />}
+
+        <div className="mx-auto max-w-[340px]">
+          <div className="grid grid-cols-10 overflow-hidden rounded-lg border border-white/12">
+            {Array.from({ length: 100 }, (_, i) => {
+              const sr = (i / 10) | 0; const sc = i % 10;
+              const r = game.flipped ? 9 - sr : sr;
+              const c = game.flipped ? 9 - sc : sc;
+              const n = sq(r, c);
+              const dark = (r + c) % 2 === 1;
+              const v = dark ? board[n] : 0;
+              return (
+                <button
+                  key={i} type="button"
+                  onClick={() => dark && cycle(n)}
+                  className={`relative flex aspect-square items-center justify-center ${dark ? 'sq-dark' : 'sq-light'}`}
+                >
+                  {dark && showMini(v)}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5">
+          <TBtn active={side === WHITE} onClick={() => setSide(WHITE)} className="h-9">
+            <span className="h-2.5 w-2.5 rounded-full bg-ink" /><span className="text-[11px]">Ход белых</span>
+          </TBtn>
+          <TBtn active={side !== WHITE} onClick={() => setSide(-1 as Side)} className="h-9">
+            <span className="h-2.5 w-2.5 rounded-full bg-[#15181c] shadow-[0_0_0_1px_rgba(255,255,255,.3)]" /><span className="text-[11px]">Ход чёрных</span>
           </TBtn>
         </div>
-        <div className="mt-2 flex gap-1.5">
-          <input value={fenInput} onChange={(e) => setFenInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                const err = loadFenText(fenInput);
-                setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: 'Позиция загружена' });
-              }
-            }}
-            placeholder="W:W31-50:B1-20" spellCheck={false}
-            className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/25 px-3 py-2.5 font-mono text-xs text-ink outline-none transition-colors placeholder:text-dim focus:border-acc/60" />
-          <TBtn title="Загрузить позицию" accent onClick={() => {
-            const err = loadFenText(fenInput);
-            setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: 'Позиция из FEN загружена' });
-          }} className="shrink-0">
-            <ILoad size={15} />
-          </TBtn>
+
+        <div className="mt-2.5 flex flex-wrap justify-center gap-1.5">
+          <TBtn onClick={fromCurrent} className="h-9"><span className="text-[11px]">Из позиции</span></TBtn>
+          <TBtn onClick={initial} className="h-9"><span className="text-[11px]">Начальная</span></TBtn>
+          <TBtn onClick={clear} className="h-9"><span className="text-[11px]">Очистить</span></TBtn>
+          <TBtn accent onClick={apply} className="h-9"><ICheck size={13} /><span className="text-[11px] font-semibold">Применить</span></TBtn>
         </div>
-        <p className="mt-2 text-[10px] leading-relaxed text-dim">
-          <span className="font-mono text-mut">сторона:белые:чёрные</span>, дамки — <span className="font-mono text-mut">K</span>, диапазоны через дефис.
-        </p>
       </section>
 
       <section className="panel p-3.5 sm:p-4">
         <header className="mb-2 flex items-center justify-between">
-          <h2 className="font-display text-[10px] font-bold tracking-[.22em] text-mut">ПАРТИЯ · PDN</h2>
-          <span className="chip">{moves.length} полуходов</span>
+          <h2 className="font-display text-[10px] font-bold tracking-[.22em] text-mut">FEN</h2>
+          <span className="chip">Liens / PDN-FEN</span>
         </header>
-        <textarea value={pdnInput} onChange={(e) => setPdnInput(e.target.value)} rows={6} spellCheck={false}
-          placeholder={'Вставьте партию в PDN:\n1.32-28 19-23 2.28x19 14x23 ...'}
-          className="w-full resize-y rounded-lg border border-white/10 bg-black/25 px-3 py-2.5 font-mono text-xs leading-relaxed text-ink outline-none transition-colors placeholder:text-dim focus:border-acc/60 scroll-slim" />
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          <TBtn accent title="Разобрать PDN" onClick={() => {
-            const err = loadPDNText(pdnInput);
-            setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: 'Партия загружена' });
-          }}>
-            <ILoad size={15} /><span className="text-xs font-semibold">Загрузить</span>
-          </TBtn>
-          <TBtn title="Пример партии" onClick={() => {
-            setPdnInput(SAMPLE_PDN);
-            const err = loadPDNText(SAMPLE_PDN);
-            setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: 'Пример загружен — листайте ходы' });
-          }}>
-            <IBook size={15} /><span className="text-xs">Пример</span>
-          </TBtn>
-          <TBtn title="Копировать PDN" onClick={() => copy(pdnText, 'PDN')}>
-            {copied === 'PDN' ? <ICheck size={15} /> : <ICopy size={15} />}
-          </TBtn>
-          <TBtn title="Скачать .pdn" onClick={download}>
-            <IDown size={15} /><span className="text-xs">.pdn</span>
+        <div className="flex gap-1.5">
+          <input value={curFen} readOnly spellCheck={false}
+            className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/25 px-3 py-2.5 font-mono text-xs text-body outline-none" />
+          <TBtn title="Копировать FEN" onClick={() => {
+            void navigator.clipboard.writeText(curFen).then(() => {
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 1500);
+            }).catch(() => undefined);
+          }} className="shrink-0">
+            {copied ? <ICheck size={15} /> : <ICopy size={15} />}
           </TBtn>
         </div>
+        <div className="mt-2 flex gap-1.5">
+          <input
+            value={fenInput}
+            onChange={(e) => setFenInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') loadFenInto(); }}
+            placeholder="W:W31-50:B1-20"
+            spellCheck={false}
+            className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/25 px-3 py-2.5 font-mono text-xs text-ink outline-none transition-colors placeholder:text-dim focus:border-acc/60"
+          />
+          <TBtn accent onClick={loadFenInto} className="shrink-0" title="Загрузить FEN в расстановку">
+            <ILoad size={15} />
+          </TBtn>
+          <TBtn title="Сразу применить FEN как позицию" onClick={() => {
+            const err = game.loadFenText(fenInput);
+            setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: 'Позиция из FEN применена' });
+          }} className="shrink-0">
+            <ICheck size={15} />
+          </TBtn>
+        </div>
+        <p className="mt-2 text-[10px] leading-relaxed text-dim">
+          <span className="font-mono text-mut">сторона:белые:чёрные</span> · дамки — <span className="font-mono text-mut">K</span> ·
+          диапазоны через дефис. Генерация FEN — из расстановки или текущей позиции («Из позиции»).
+        </p>
       </section>
     </div>
   );
 }
 
+function showMini(v: number): ReactNode {
+  if (v === 0) return null;
+  const king = Math.abs(v) === 2;
+  return (
+    <span className={`flex h-[74%] w-[74%] items-center justify-center rounded-full ${
+      v > 0
+        ? 'bg-[radial-gradient(circle_at_35%_30%,#fdf6e3,#eadbb4_52%,#c4ab7c)] shadow-[inset_0_0_0_2px_rgba(255,255,255,.6),0_2px_4px_rgba(0,0,0,.4)]'
+        : 'bg-[radial-gradient(circle_at_35%_28%,#4d545c,#262b31_52%,#0c0e11)] shadow-[inset_0_0_0_2px_rgba(235,255,250,.3),0_2px_4px_rgba(0,0,0,.5)]'
+    }`}>
+      {king && (
+        <svg viewBox="0 0 24 24" className="h-1/2 w-1/2">
+          <path d="M4 17h16l1.5-8-4.5 3L12 5l-5 7-4.5-3z" fill="#e8b04b" />
+        </svg>
+      )}
+    </span>
+  );
+}
+
 /* ================= нейросеть ================= */
 
-function NNPanel({ game }: { game: GameApi }) {
+function NetTab({ game }: { game: GameApi }) {
   const { nnMeta, training, trainProg, trainOnPDN, clearNet, engineKind, scanAvail } = game;
   const fileRef = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
@@ -899,13 +1225,6 @@ function NNPanel({ game }: { game: GameApi }) {
     } else {
       setMsg({ kind: 'err', text: res.error ?? 'Ошибка обучения' });
     }
-  };
-
-  const onFile = (f: File | null) => {
-    if (!f) return;
-    const rd = new FileReader();
-    rd.onload = () => void run(String(rd.result ?? ''));
-    rd.readAsText(f);
   };
 
   return (
@@ -922,7 +1241,7 @@ function NNPanel({ game }: { game: GameApi }) {
       </p>
 
       <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
-        <span className="chip">200 → 64 → 1 · ReLU/σ</span>
+        <span className="chip">200 → 48 → 1 · ReLU/σ</span>
         <span className="chip">Adam · ранняя остановка</span>
         <span className="chip">аугментация rot180</span>
         <span className="chip">val-сплит 90/10</span>
@@ -938,7 +1257,13 @@ function NNPanel({ game }: { game: GameApi }) {
 
       <input
         ref={fileRef} type="file" accept=".pdn,.txt,text/plain" className="hidden"
-        onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (!f) return;
+          const rd = new FileReader();
+          rd.onload = () => void run(String(rd.result ?? ''));
+          rd.readAsText(f);
+        }}
       />
       <button
         type="button"
@@ -986,7 +1311,7 @@ function NNPanel({ game }: { game: GameApi }) {
           ? 'Scan 3.1 (WASM) — сильнейший открытый движок 100-клеточных шашек.'
           : scanAvail
             ? 'встроенный α-β (Scan отключён в настройках).'
-            : 'встроенный α-β + PVS/LMR. Scan WASM появится, если положить scan.js/scan.wasm в public/scan/ (bash scripts/build-scan.sh).'}
+            : 'встроенный α-β + PVS/LMR. Scan WASM появится, если положить scan.js/scan.wasm в public/scan/.'}
         <span className="mt-1 block">
           Сеть смешивается с оценкой α-β на корне поиска (вес — в настройках) и хранится локально; работает офлайн.
         </span>
@@ -997,13 +1322,14 @@ function NNPanel({ game }: { game: GameApi }) {
 
 /* ================= приложение ================= */
 
-type Tab = 'analysis' | 'game' | 'formats' | 'nn';
+type Tab = 'analysis' | 'moves' | 'db' | 'setup' | 'net';
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'analysis', label: 'Анализ' },
-  { id: 'game', label: 'Партия' },
-  { id: 'formats', label: 'Форматы' },
-  { id: 'nn', label: 'Сеть' },
+const TABS: { id: Tab; label: string; icon: (p: IP) => ReactNode }[] = [
+  { id: 'analysis', label: 'Анализ', icon: (p) => <IChipIc {...p} /> },
+  { id: 'moves', label: 'Ходы', icon: (p) => <IList {...p} /> },
+  { id: 'db', label: 'База', icon: (p) => <IDb {...p} /> },
+  { id: 'setup', label: 'Доска', icon: (p) => <IGrid {...p} /> },
+  { id: 'net', label: 'Сеть', icon: (p) => <IBolt {...p} /> },
 ];
 
 function Logo() {
@@ -1069,8 +1395,10 @@ export default function App() {
       ? 'α-β (Scan выкл.)'
       : 'α-β · PVS+LMR';
 
+  const ply = g.path.length - 1;
+
   return (
-    <div className="min-h-dvh">
+    <div className="min-h-dvh pb-20 min-[880px]:pb-0">
       <header className="relative z-50 border-b border-white/[.07] bg-pan/80 pt-[env(safe-area-inset-top)] backdrop-blur-sm">
         <div className="mx-auto flex max-w-[1120px] items-center gap-2.5 px-3 py-2.5 sm:gap-3 sm:px-4">
           <Logo />
@@ -1078,7 +1406,7 @@ export default function App() {
             <h1 className="font-display text-[13px] font-black leading-none tracking-[.12em] text-ink sm:text-base">
               СТО<span className="text-acc2">КЛЕТКА</span>
             </h1>
-            <p className="mt-0.5 truncate text-[10px] leading-none text-dim">шашки 100 · ФМЖД</p>
+            <p className="mt-0.5 truncate text-[10px] leading-none text-dim">разбор партий · ФМЖД</p>
           </div>
           <div className="ml-auto hidden items-center gap-2 rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5 md:flex">
             <Dot color={g.engine.thinking ? 'var(--accent)' : '#5fb287'} pulse={g.engine.thinking} />
@@ -1098,7 +1426,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="mx-auto grid max-w-[1120px] gap-5 px-3 py-4 min-[880px]:grid-cols-[minmax(0,1fr)_380px] min-[880px]:gap-6">
+      <main className="mx-auto grid max-w-[1120px] gap-5 px-3 py-4 min-[880px]:grid-cols-[minmax(0,1fr)_400px] min-[880px]:gap-6">
         <div className="min-w-0">
           <div className="relative mx-auto max-w-[560px]">
             <BoardGlow pos={g.pos} />
@@ -1109,9 +1437,9 @@ export default function App() {
             />
           </div>
 
-          {g.moves.length > 0 && (
+          {ply > 0 && (
             <div className="mx-auto max-w-[560px]">
-              <EvalChart start={g.start} moves={g.moves} ply={g.ply} goto={g.goto} />
+              <EvalChart start={g.start} pathNodes={g.path} ply={ply} gotoPly={g.gotoPly} />
             </div>
           )}
 
@@ -1139,14 +1467,14 @@ export default function App() {
             )}
 
             <div className="mt-2.5 flex items-center gap-1.5">
-              <TBtn title="В начало" onClick={g.toStart} disabled={g.ply === 0} className="h-12 flex-1"><IFirst /></TBtn>
-              <TBtn title="Назад" onClick={g.prev} disabled={g.ply === 0} className="h-12 flex-1"><IPrev /></TBtn>
+              <TBtn title="В начало" onClick={g.toStart} disabled={ply === 0} className="h-12 flex-1"><IFirst /></TBtn>
+              <TBtn title="Назад" onClick={g.prev} disabled={ply === 0} className="h-12 flex-1"><IPrev /></TBtn>
               <TBtn title={g.auto ? 'Пауза' : 'Автопроигрывание'} accent active={g.auto}
-                onClick={() => g.setAuto(!g.auto)} disabled={g.moves.length === 0} className="h-12 flex-1">
+                onClick={() => g.setAuto(!g.auto)} disabled={g.curNode.children.length === 0} className="h-12 flex-1">
                 {g.auto ? <IPause /> : <IPlay />}
               </TBtn>
-              <TBtn title="Вперёд" onClick={g.next} disabled={g.ply >= g.moves.length} className="h-12 flex-1"><INext /></TBtn>
-              <TBtn title="В конец" onClick={g.toEnd} disabled={g.ply >= g.moves.length} className="h-12 flex-1"><ILast /></TBtn>
+              <TBtn title="Вперёд" onClick={g.next} disabled={g.curNode.children.length === 0} className="h-12 flex-1"><INext /></TBtn>
+              <TBtn title="В конец" onClick={g.toEnd} disabled={g.curNode.children.length === 0} className="h-12 flex-1"><ILast /></TBtn>
               <span className="mx-0.5 hidden h-7 w-px bg-white/10 sm:block" />
               <TBtn title="Перевернуть доску" onClick={g.toggleFlip} active={g.flipped} className="h-12 w-11 px-0"><IFlip /></TBtn>
               <TBtn title="Номера полей 1–50 на доске" onClick={g.toggleNums} active={g.showNums} className="h-12 w-12 px-0">
@@ -1157,11 +1485,12 @@ export default function App() {
           </div>
         </div>
 
+        {/* правая колонка (desktop) / под доской (mobile) */}
         <div className="flex min-w-0 flex-col gap-3.5">
-          <nav className="grid grid-cols-4 rounded-xl border border-white/10 bg-white/[.03] p-1">
+          <nav className="hidden grid-cols-5 rounded-xl border border-white/10 bg-white/[.03] p-1 min-[880px]:grid">
             {TABS.map((t) => (
               <button key={t.id} type="button" onClick={() => setTab(t.id)}
-                className={`rounded-lg px-1 py-2.5 text-[11px] font-semibold transition-all duration-150 active:scale-[.97] sm:text-xs ${
+                className={`rounded-lg px-1 py-2.5 text-[11px] font-semibold transition-all duration-150 active:scale-[.97] ${
                   tab === t.id
                     ? 'bg-acc/15 text-acc2 shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--accent)_35%,transparent)]'
                     : 'text-mut hover:bg-white/[.05] hover:text-body'}`}>
@@ -1174,17 +1503,31 @@ export default function App() {
             {tab === 'analysis' && (
               <AnalysisPanel game={g} s={s} onPlay={(f, t) => g.playFromTo(f, t)} onHover={handleHover} />
             )}
-            {tab === 'game' && <MovesPanel game={g} />}
-            {tab === 'formats' && <FormatsPanel game={g} />}
-            {tab === 'nn' && <NNPanel game={g} />}
+            {tab === 'moves' && <MovesTab game={g} />}
+            {tab === 'db' && <DbTab game={g} />}
+            {tab === 'setup' && <SetupTab game={g} />}
+            {tab === 'net' && <NetTab game={g} />}
           </div>
         </div>
       </main>
 
-      <div className="pb-[calc(1rem+env(safe-area-inset-bottom))]" />
+      {/* нижняя навигация (mobile) */}
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-pan/92 pb-[env(safe-area-inset-bottom)] backdrop-blur-md min-[880px]:hidden">
+        <div className="mx-auto grid max-w-[560px] grid-cols-5">
+          {TABS.map((t) => (
+            <button key={t.id} type="button" onClick={() => setTab(t.id)}
+              className={`flex flex-col items-center gap-0.5 py-2 transition-colors duration-150 ${
+                tab === t.id ? 'text-acc2' : 'text-dim active:text-mut'}`}>
+              {t.icon({ size: 19 })}
+              <span className="text-[9px] font-semibold tracking-wide">{t.label}</span>
+              <span className={`h-0.5 w-6 rounded-full transition-all duration-200 ${tab === t.id ? 'bg-acc' : 'bg-transparent'}`} />
+            </button>
+          ))}
+        </div>
+      </nav>
 
       {g.hint && (
-        <div className="toast-in pointer-events-none fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] left-1/2 z-50 flex items-center gap-2 rounded-lg border border-acc/50 bg-pan/95 px-4 py-2.5 text-xs font-semibold text-acc2 shadow-[0_10px_30px_rgba(0,0,0,.5)] backdrop-blur-sm">
+        <div className="toast-in pointer-events-none fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] left-1/2 z-50 flex items-center gap-2 rounded-lg border border-acc/50 bg-pan/95 px-4 py-2.5 text-xs font-semibold text-acc2 shadow-[0_10px_30px_rgba(0,0,0,.5)] backdrop-blur-sm min-[880px]:bottom-6">
           <IWarn size={14} />{g.hint}
         </div>
       )}
