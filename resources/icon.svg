@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0e2830"/>
+      <stop offset="1" stop-color="#123640"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#e6a53c" stop-opacity="0.55"/>
+      <stop offset="0.55" stop-color="#e6a53c" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#e6a53c" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="blackPiece" cx="0.36" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#565e67"/>
+      <stop offset="0.5" stop-color="#262b31"/>
+      <stop offset="1" stop-color="#0b0d10"/>
+    </radialGradient>
+    <radialGradient id="whitePiece" cx="0.36" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#fdf6e3"/>
+      <stop offset="0.55" stop-color="#e7d7ac"/>
+      <stop offset="1" stop-color="#bfa473"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6d489"/>
+      <stop offset="1" stop-color="#dfa03c"/>
+    </linearGradient>
+    <pattern id="check" width="128" height="128" patternUnits="userSpaceOnUse" patternTransform="rotate(45 512 512)">
+      <rect width="64" height="64" fill="#1d454f"/>
+      <rect x="64" y="64" width="64" height="64" fill="#1d454f"/>
+    </pattern>
+  </defs>
+
+  <!-- фон -->
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="url(#check)" opacity="0.16"/>
+
+  <!-- янтарное сияние за фигурами -->
+  <circle cx="512" cy="540" r="330" fill="url(#glow)"/>
+
+  <!-- тонкое кольцо -->
+  <circle cx="512" cy="540" r="300" fill="none" stroke="#e6a53c" stroke-opacity="0.4" stroke-width="5"/>
+
+  <!-- белая шашка (сзади, справа) -->
+  <ellipse cx="668" cy="806" rx="150" ry="30" fill="#000" opacity="0.35"/>
+  <circle cx="668" cy="668" r="172" fill="url(#whitePiece)"/>
+  <circle cx="668" cy="668" r="172" fill="none" stroke="#ffffff" stroke-opacity="0.5" stroke-width="8"/>
+  <circle cx="668" cy="668" r="126" fill="none" stroke="#8a6a35" stroke-opacity="0.35" stroke-width="10"/>
+
+  <!-- чёрная шашка (спереди) -->
+  <ellipse cx="452" cy="792" rx="190" ry="36" fill="#000" opacity="0.45"/>
+  <circle cx="452" cy="600" r="206" fill="url(#blackPiece)"/>
+  <circle cx="452" cy="600" r="206" fill="none" stroke="#eafffa" stroke-opacity="0.32" stroke-width="9"/>
+  <circle cx="452" cy="600" r="150" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="12"/>
+
+  <!-- корона -->
+  <g transform="translate(452 452)">
+    <path d="M-118 62 L118 62 L140 -62 L66 -10 L0 -96 L-66 -10 L-140 -62 Z"
+          fill="url(#gold)" stroke="#7d551a" stroke-width="9" stroke-linejoin="round"/>
+    <rect x="-118" y="70" width="236" height="30" rx="12" fill="url(#gold)" stroke="#7d551a" stroke-width="8"/>
+    <circle cx="0" cy="-96" r="14" fill="#f6d489" stroke="#7d551a" stroke-width="7"/>
+  </g>
+</svg>
