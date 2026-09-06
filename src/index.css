@@ -42,6 +42,12 @@
 /* ---------- база + мобильное поведение ---------- */
 html, body { margin: 0; }
 
+/* горизонтального скролла не существует вообще; вертикальный скролл
+   доступен жестом/колесом, но скроллбары не рисуются */
+html, body { overflow-x: clip; }
+body { scrollbar-width: none; }
+body::-webkit-scrollbar { display: none; }
+
 html { touch-action: manipulation; }
 * { -webkit-tap-highlight-color: transparent; }
 
@@ -223,25 +229,20 @@ body, .panel, .sq-dark, .sq-light, .board-frame, .chip, .piece-disc, .theme-card
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/* ---------- скроллбар ---------- */
-.scroll-slim::-webkit-scrollbar { width: 8px; height: 8px; }
-.scroll-slim::-webkit-scrollbar-track { background: transparent; }
-.scroll-slim::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-.scroll-slim::-webkit-scrollbar-thumb:hover { background-color: rgba(255, 255, 255, 0.22); }
-.scroll-slim { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.15) transparent; }
+/* ---------- скроллбар ----------
+   Скролл работает жестом/колесом, полосы не рисуются нигде. */
+.scroll-slim { scrollbar-width: none; }
+.scroll-slim::-webkit-scrollbar { display: none; }
+textarea, input { scrollbar-width: none; }
+textarea::-webkit-scrollbar, input::-webkit-scrollbar { display: none; }
 
 /* ---------- живое свечение за доской ---------- */
 .board-glow {
   position: absolute;
-  inset: -46px -26px;
+  inset: -34px -14px;
   z-index: 0;
   pointer-events: none;
-  filter: blur(34px);
+  filter: blur(30px);
   transition: background 0.7s ease;
   animation: glow-breathe 6s ease-in-out infinite;
 }
@@ -282,4 +283,42 @@ body, .panel, .sq-dark, .sq-light, .board-frame, .chip, .piece-disc, .theme-card
 @keyframes reveal-up {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================================
+ * ЛАНДШАФТ НА НИЗКОМ ЭКРАНЕ (телефон, повёрнутый горизонтально):
+ * двухколоночная компоновка — доска слева, панели справа;
+ * всё подогнано под высоту, чтобы минимум скролла.
+ * ============================================================ */
+.app-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+}
+@media (min-width: 880px) {
+  .app-grid { grid-template-columns: minmax(0, 1fr) 400px; gap: 24px; }
+}
+
+@media (orientation: landscape) and (max-height: 560px) {
+  .app-grid { grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; }
+  .app-root { padding-bottom: 0.75rem; }
+
+  .hdr { padding-block: 6px; }
+  .hdr .logo-sm { width: 26px; height: 26px; }
+
+  /* доска вписывается в доступную высоту */
+  .board-shell { max-width: min(100%, calc(100dvh - 200px)); }
+
+  /* пульт компактнее */
+  .ctl { height: 40px; }
+  .ctl-sq { height: 40px; width: 42px; }
+
+  /* нижняя навигация уходит, работает боковая (в правой колонке) */
+  .nav-mobile { display: none; }
+  .nav-side { display: grid; }
+  .nav-side button { padding-block: 8px; }
+
+  .toast-float { bottom: 1rem; }
+
+  .hide-ll { display: none; }
 }

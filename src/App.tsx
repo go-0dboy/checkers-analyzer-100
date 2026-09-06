@@ -151,7 +151,7 @@ function ThemePicker() {
         <IPalette size={17} />
       </TBtn>
       {open && (
-        <div className="pop-in absolute right-0 top-12 z-50 w-[290px] rounded-xl border border-white/12 bg-pan/95 p-2 shadow-[0_18px_50px_rgba(0,0,0,.55)] backdrop-blur-md">
+        <div className="pop-in absolute right-0 top-12 z-50 w-[290px] max-w-[calc(100vw-1.5rem)] rounded-xl border border-white/12 bg-pan/95 p-2 shadow-[0_18px_50px_rgba(0,0,0,.55)] backdrop-blur-md">
           <div className="px-2 pb-1 pt-1 font-display text-[10px] font-bold tracking-[.22em] text-dim">ТЕМА ОФОРМЛЕНИЯ</div>
           <div className="grid grid-cols-2 gap-1.5">
             {THEMES.map((t) => {
@@ -201,7 +201,7 @@ function SettingsPanel({ s, set, game, onClose }: {
   }, [onClose]);
 
   return (
-    <div ref={ref} className="pop-in absolute right-0 top-12 z-50 w-[300px] rounded-xl border border-white/12 bg-pan/95 p-3 shadow-[0_18px_50px_rgba(0,0,0,.55)] backdrop-blur-md">
+    <div ref={ref} className="pop-in absolute right-0 top-12 z-50 w-[300px] max-w-[calc(100vw-1.5rem)] rounded-xl border border-white/12 bg-pan/95 p-3 shadow-[0_18px_50px_rgba(0,0,0,.55)] backdrop-blur-md">
       <div className="mb-2 font-display text-[10px] font-bold tracking-[.22em] text-dim">НАСТРОЙКИ</div>
       <div className="flex flex-col gap-1 divide-y divide-white/[.06]">
         <div className="pb-2">
@@ -1334,7 +1334,7 @@ const TABS: { id: Tab; label: string; icon: (p: IP) => ReactNode }[] = [
 
 function Logo() {
   return (
-    <svg viewBox="0 0 36 36" className="h-8 w-8 shrink-0 drop-shadow-[0_2px_6px_rgba(0,0,0,.5)] sm:h-9 sm:w-9">
+    <svg viewBox="0 0 36 36" className="logo-sm h-8 w-8 shrink-0 drop-shadow-[0_2px_6px_rgba(0,0,0,.5)] sm:h-9 sm:w-9">
       <rect x="1" y="1" width="34" height="34" rx="7" fill="#132a2e" stroke="#2c5a5e" strokeWidth="1.4" />
       <path d="M1 8a7 7 0 017-7h9v17H1z" fill="#d8e0d8" opacity=".9" />
       <path d="M18 18h17v10a7 7 0 01-7 7H18z" fill="#d8e0d8" opacity=".9" />
@@ -1398,9 +1398,9 @@ export default function App() {
   const ply = g.path.length - 1;
 
   return (
-    <div className="min-h-dvh pb-20 min-[880px]:pb-0">
+    <div className="app-root min-h-dvh overflow-x-clip pb-20 min-[880px]:pb-0">
       <header className="relative z-50 border-b border-white/[.07] bg-pan/80 pt-[env(safe-area-inset-top)] backdrop-blur-sm">
-        <div className="mx-auto flex max-w-[1120px] items-center gap-2.5 px-3 py-2.5 sm:gap-3 sm:px-4">
+        <div className="hdr mx-auto flex max-w-[1120px] items-center gap-2.5 px-3 py-2.5 sm:gap-3 sm:px-4">
           <Logo />
           <div className="min-w-0">
             <h1 className="font-display text-[13px] font-black leading-none tracking-[.12em] text-ink sm:text-base">
@@ -1426,9 +1426,9 @@ export default function App() {
         </div>
       </header>
 
-      <main className="mx-auto grid max-w-[1120px] gap-5 px-3 py-4 min-[880px]:grid-cols-[minmax(0,1fr)_400px] min-[880px]:gap-6">
+      <main className="app-grid mx-auto max-w-[1120px] px-3 py-4">
         <div className="min-w-0">
-          <div className="relative mx-auto max-w-[560px]">
+          <div className="board-shell relative mx-auto max-w-[560px]">
             <BoardGlow pos={g.pos} />
             <BoardView
               pos={g.pos} legal={g.legal} selected={g.selected} lastMove={g.lastMove}
@@ -1438,7 +1438,7 @@ export default function App() {
           </div>
 
           {ply > 0 && (
-            <div className="mx-auto max-w-[560px]">
+            <div className="hide-ll mx-auto max-w-[560px]">
               <EvalChart start={g.start} pathNodes={g.path} ply={ply} gotoPly={g.gotoPly} />
             </div>
           )}
@@ -1467,27 +1467,27 @@ export default function App() {
             )}
 
             <div className="mt-2.5 flex items-center gap-1.5">
-              <TBtn title="В начало" onClick={g.toStart} disabled={ply === 0} className="h-12 flex-1"><IFirst /></TBtn>
-              <TBtn title="Назад" onClick={g.prev} disabled={ply === 0} className="h-12 flex-1"><IPrev /></TBtn>
+              <TBtn title="В начало" onClick={g.toStart} disabled={ply === 0} className="ctl h-12 flex-1"><IFirst /></TBtn>
+              <TBtn title="Назад" onClick={g.prev} disabled={ply === 0} className="ctl h-12 flex-1"><IPrev /></TBtn>
               <TBtn title={g.auto ? 'Пауза' : 'Автопроигрывание'} accent active={g.auto}
-                onClick={() => g.setAuto(!g.auto)} disabled={g.curNode.children.length === 0} className="h-12 flex-1">
+                onClick={() => g.setAuto(!g.auto)} disabled={g.curNode.children.length === 0} className="ctl h-12 flex-1">
                 {g.auto ? <IPause /> : <IPlay />}
               </TBtn>
-              <TBtn title="Вперёд" onClick={g.next} disabled={g.curNode.children.length === 0} className="h-12 flex-1"><INext /></TBtn>
-              <TBtn title="В конец" onClick={g.toEnd} disabled={g.curNode.children.length === 0} className="h-12 flex-1"><ILast /></TBtn>
+              <TBtn title="Вперёд" onClick={g.next} disabled={g.curNode.children.length === 0} className="ctl h-12 flex-1"><INext /></TBtn>
+              <TBtn title="В конец" onClick={g.toEnd} disabled={g.curNode.children.length === 0} className="ctl h-12 flex-1"><ILast /></TBtn>
               <span className="mx-0.5 hidden h-7 w-px bg-white/10 sm:block" />
-              <TBtn title="Перевернуть доску" onClick={g.toggleFlip} active={g.flipped} className="h-12 w-11 px-0"><IFlip /></TBtn>
-              <TBtn title="Номера полей 1–50 на доске" onClick={g.toggleNums} active={g.showNums} className="h-12 w-12 px-0">
+              <TBtn title="Перевернуть доску" onClick={g.toggleFlip} active={g.flipped} className="ctl-sq h-12 w-11 px-0"><IFlip /></TBtn>
+              <TBtn title="Номера полей 1–50 на доске" onClick={g.toggleNums} active={g.showNums} className="ctl-sq h-12 w-12 px-0">
                 <span className="font-mono text-[11px] font-bold">1–50</span>
               </TBtn>
-              <TBtn title="Новая партия" onClick={g.newGame} className="h-12 w-11 px-0"><IPlus /></TBtn>
+              <TBtn title="Новая партия" onClick={g.newGame} className="ctl-sq h-12 w-11 px-0"><IPlus /></TBtn>
             </div>
           </div>
         </div>
 
         {/* правая колонка (desktop) / под доской (mobile) */}
         <div className="flex min-w-0 flex-col gap-3.5">
-          <nav className="hidden grid-cols-5 rounded-xl border border-white/10 bg-white/[.03] p-1 min-[880px]:grid">
+          <nav className="nav-side hidden grid-cols-5 rounded-xl border border-white/10 bg-white/[.03] p-1 min-[880px]:grid">
             {TABS.map((t) => (
               <button key={t.id} type="button" onClick={() => setTab(t.id)}
                 className={`rounded-lg px-1 py-2.5 text-[11px] font-semibold transition-all duration-150 active:scale-[.97] ${
@@ -1512,7 +1512,7 @@ export default function App() {
       </main>
 
       {/* нижняя навигация (mobile) */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-pan/92 pb-[env(safe-area-inset-bottom)] backdrop-blur-md min-[880px]:hidden">
+      <nav className="nav-mobile fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-pan/92 pb-[env(safe-area-inset-bottom)] backdrop-blur-md min-[880px]:hidden">
         <div className="mx-auto grid max-w-[560px] grid-cols-5">
           {TABS.map((t) => (
             <button key={t.id} type="button" onClick={() => setTab(t.id)}
@@ -1527,7 +1527,7 @@ export default function App() {
       </nav>
 
       {g.hint && (
-        <div className="toast-in pointer-events-none fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] left-1/2 z-50 flex items-center gap-2 rounded-lg border border-acc/50 bg-pan/95 px-4 py-2.5 text-xs font-semibold text-acc2 shadow-[0_10px_30px_rgba(0,0,0,.5)] backdrop-blur-sm min-[880px]:bottom-6">
+        <div className="toast-float toast-in pointer-events-none fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] left-1/2 z-50 flex max-w-[calc(100vw-2rem)] items-center gap-2 rounded-lg border border-acc/50 bg-pan/95 px-4 py-2.5 text-xs font-semibold text-acc2 shadow-[0_10px_30px_rgba(0,0,0,.5)] backdrop-blur-sm min-[880px]:bottom-6">
           <IWarn size={14} />{g.hint}
         </div>
       )}
