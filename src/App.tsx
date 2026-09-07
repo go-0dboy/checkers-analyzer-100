@@ -257,7 +257,7 @@ const PIECE_SPRITES = {
   'black-king': '/pieces/black-king.svg',
 } as const;
 
-/* Preloading изображений при первом рендере доски */
+/* Preloading изображений при загрузке модуля */
 const spritesLoaded = { done: false };
 function preloadSprites() {
   if (spritesLoaded.done) return;
@@ -268,7 +268,10 @@ function preloadSprites() {
   }
 }
 
-interface PieceInfo { n: number; color: Side; king: boolean; id: number; fresh: boolean }
+/* Запускаем preloading сразу при загрузке модуля */
+preloadSprites();
+
+interface PieceInfo { n: number; color: Side; king: boolean; id: number }
 
 function BoardView({
   pos, legal, selected, lastMove, best, preview, flipped, showNums, winner, movableFroms, onSquare,
@@ -280,9 +283,6 @@ function BoardView({
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [px, setPx] = useState(360);
-
-  /* Preloading SVG-спрайтов при первом рендере */
-  useEffect(() => { preloadSprites(); }, []);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -302,13 +302,12 @@ function BoardView({
     const key = pos.b.join('') + pos.side;
     if (cache.current?.key === key) return cache.current.list;
     const prev = prevInfo.current;
-    const prevIds = new Set([...prev.values()].map((v) => v.id));
     const next = new Map<number, { id: number; color: Side }>();
     const placed = new Set<number>();
     const list: PieceInfo[] = [];
     const add = (n: number, color: Side, king: boolean, id: number) => {
       next.set(n, { id, color }); placed.add(n);
-      list.push({ n, color, king, id, fresh: !prevIds.has(id) });
+      list.push({ n, color, king, id });
     };
     if (lastMove) {
       const e = prev.get(lastMove.from);
@@ -433,7 +432,6 @@ function BoardView({
               <div key={p.id} className="piece-layer" style={{ transform: `translate3d(${sc * 100}%, ${sr * 100}%, 0)` }} onClick={() => onSquare(p.n)}>
                 <div className={[
                   'piece-disc',
-                  p.fresh ? 'piece-pop' : '',
                   selected === p.n ? 'piece-selected' : '',
                 ].join(' ')}>
                   <img src={pieceSrc} alt="" className="piece-img" draggable={false} />
