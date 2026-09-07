@@ -249,13 +249,23 @@ function SettingsPanel({ s, set, game, onClose }: {
 
 /* ================= доска ================= */
 
-function Crown() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-[46%] w-[46%] drop-shadow-[0_1px_2px_rgba(0,0,0,.6)]">
-      <path d="M4 17h16l1.5-8.5-4.7 3.4L12 5.5 7.2 11.9 2.5 8.5z" fill="#e8b04b" stroke="#8a5f1d" strokeWidth="1" strokeLinejoin="round" />
-      <rect x="4" y="17.6" width="16" height="2.4" rx="0.8" fill="#e8b04b" stroke="#8a5f1d" strokeWidth="0.8" />
-    </svg>
-  );
+/* Пути к SVG-спрайтам шашек */
+const PIECE_SPRITES = {
+  'white-man': '/pieces/white-man.svg',
+  'white-king': '/pieces/white-king.svg',
+  'black-man': '/pieces/black-man.svg',
+  'black-king': '/pieces/black-king.svg',
+} as const;
+
+/* Preloading изображений при первом рендере доски */
+const spritesLoaded = { done: false };
+function preloadSprites() {
+  if (spritesLoaded.done) return;
+  spritesLoaded.done = true;
+  for (const src of Object.values(PIECE_SPRITES)) {
+    const img = new Image();
+    img.src = src;
+  }
 }
 
 interface PieceInfo { n: number; color: Side; king: boolean; id: number; fresh: boolean }
@@ -270,6 +280,9 @@ function BoardView({
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [px, setPx] = useState(360);
+
+  /* Preloading SVG-спрайтов при первом рендере */
+  useEffect(() => { preloadSprites(); }, []);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -412,15 +425,18 @@ function BoardView({
             const [r, c] = rc(p.n);
             const sr = flipped ? 9 - r : r;
             const sc = flipped ? 9 - c : c;
+            const pieceKey = p.color === WHITE
+              ? (p.king ? 'white-king' : 'white-man')
+              : (p.king ? 'black-king' : 'black-man');
+            const pieceSrc = PIECE_SPRITES[pieceKey];
             return (
-              <div key={p.id} className="piece-layer" style={{ transform: `translate(${sc * 100}%, ${sr * 100}%)` }} onClick={() => onSquare(p.n)}>
+              <div key={p.id} className="piece-layer" style={{ transform: `translate3d(${sc * 100}%, ${sr * 100}%, 0)` }} onClick={() => onSquare(p.n)}>
                 <div className={[
                   'piece-disc',
-                  p.color === WHITE ? 'piece-white' : 'piece-black',
                   p.fresh ? 'piece-pop' : '',
                   selected === p.n ? 'piece-selected' : '',
                 ].join(' ')}>
-                  {p.king && <Crown />}
+                  <img src={pieceSrc} alt="" className="piece-img" draggable={false} />
                 </div>
               </div>
             );

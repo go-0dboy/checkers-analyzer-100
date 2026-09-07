@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <radialGradient id="whiteGrad" cx="35%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#fdf6e3"/>
+      <stop offset="52%" stop-color="#eadbb4"/>
+      <stop offset="100%" stop-color="#c4ab7c"/>
+    </radialGradient>
+    <filter id="whiteShadow">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
+      <feOffset dx="0" dy="3" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.5"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <circle cx="50" cy="50" r="42" fill="url(#whiteGrad)" filter="url(#whiteShadow)"/>
+  <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.65)" stroke-width="4"/>
+  <circle cx="50" cy="50" r="35" fill="none" stroke="rgba(120,90,40,0.18)" stroke-width="14"/>
+</svg>

@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <radialGradient id="whiteKingGrad" cx="35%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#fdf6e3"/>
+      <stop offset="52%" stop-color="#eadbb4"/>
+      <stop offset="100%" stop-color="#c4ab7c"/>
+    </radialGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#f6d489"/>
+      <stop offset="100%" stop-color="#dfa03c"/>
+    </linearGradient>
+    <filter id="whiteKingShadow">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
+      <feOffset dx="0" dy="3" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.5"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="crownShadow">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="1"/>
+      <feOffset dx="0" dy="1" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.6"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <circle cx="50" cy="50" r="42" fill="url(#whiteKingGrad)" filter="url(#whiteKingShadow)"/>
+  <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.65)" stroke-width="4"/>
+  <circle cx="50" cy="50" r="35" fill="none" stroke="rgba(120,90,40,0.18)" stroke-width="14"/>
+  <g filter="url(#crownShadow)">
+    <path d="M30 62 L70 62 L75 45 L62 52 L50 38 L38 52 L25 45 Z" fill="url(#goldGrad)" stroke="#8a5f1d" stroke-width="2" stroke-linejoin="round"/>
+    <rect x="30" y="63" width="40" height="6" rx="2" fill="url(#goldGrad)" stroke="#8a5f1d" stroke-width="1.5"/>
+  </g>
+</svg>
