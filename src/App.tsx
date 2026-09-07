@@ -8,7 +8,7 @@
 
 import {
   useEffect, useMemo, useRef, useState,
-  type MouseEvent as ReactMouseEvent, type ReactNode, type SVGProps,
+  type ReactNode, type SVGProps,
 } from 'react';
 import {
   type Move, type Pos, type Side, WHITE, rc, sq, tempi,
@@ -17,7 +17,7 @@ import { materialInfo } from './engine/tablebase';
 import { SAMPLE_PDN } from './engine/pdn';
 import { loadSettings, saveSettings, type Settings } from './state/settings';
 import { useGame, type GameApi, type CandidateLite } from './state/useGame';
-import { NAG_SYMBOLS, nodeSan, pathPositions, type TreeNode } from './state/tree';
+import { NAG_SYMBOLS, nodeSan, type TreeNode } from './state/tree';
 import { THEMES, applyTheme, initialTheme, type ThemeId } from './themes';
 
 /* ================= иконки (inline SVG) ================= */
@@ -492,54 +492,6 @@ function BoardGlow({ pos }: { pos: Pos }) {
     background: `radial-gradient(60% 55% at ${50 + t * 0.9}% 50%, color-mix(in oklab, var(--accent) ${8 + strength * 24}%, transparent), transparent 70%)`,
   };
   return <div className="board-glow" style={style} aria-hidden="true" />;
-}
-
-/* ================= течение партии ================= */
-
-function EvalChart({ start, pathNodes, ply, gotoPly }: {
-  start: Pos; pathNodes: TreeNode[]; ply: number; gotoPly: (p: number) => void;
-}) {
-  const evals = useMemo(() => {
-    const poss = pathPositions(start, pathNodes);
-    return poss.map((p) => {
-      let m = 0;
-      for (let n = 1; n <= 50; n++) {
-        const v = p.b[n];
-        if (v === 1) m++; else if (v === -1) m--;
-        else if (v === 2) m += 3; else if (v === -2) m -= 3;
-      }
-      return m;
-    });
-  }, [start, pathNodes]);
-
-  const W = 560; const H = 64; const MID = H / 2; const AMP = H / 2 - 6;
-  const n = evals.length;
-  const x = (i: number) => (n <= 1 ? W / 2 : (i / (n - 1)) * W);
-  const y = (v: number) => MID - (Math.max(-6, Math.min(6, v)) / 6) * AMP;
-  const line = evals.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' ');
-  const area = `${line} L${x(n - 1).toFixed(1)} ${H} L0 ${H} Z`;
-  const cur = Math.max(0, Math.min(n - 1, ply));
-  const cx = x(cur); const cy = y(evals[cur] ?? 0);
-
-  const onClick = (e: ReactMouseEvent<SVGSVGElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    const px = ((e.clientX - r.left) / r.width) * W;
-    const idx = Math.round((px / W) * (n - 1));
-    gotoPly(Math.max(0, Math.min(n - 1, idx)));
-  };
-
-  return (
-    <div className="mt-3 select-none" title="Течение партии: клик — перейти к ходу">
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-16 w-full cursor-pointer" onClick={onClick}>
-        <line x1="0" y1={MID} x2={W} y2={MID} stroke="rgba(255,255,255,.12)" strokeDasharray="3 4" />
-        <path d={area} fill="var(--accent)" fillOpacity=".10" />
-        <path d={line} fill="none" stroke="var(--accent)" strokeOpacity=".85" strokeWidth="2" strokeLinejoin="round" />
-        <line x1={cx} y1="0" x2={cx} y2={H} stroke="var(--accent-2)" strokeOpacity=".5" strokeWidth="1.5" />
-        <circle cx={cx} cy={cy} r="4" fill="var(--accent-2)" stroke="#0b1416" strokeWidth="1.5" />
-      </svg>
-      <div className="mt-0.5 text-center text-[9px] text-dim">течение партии · клик — переход к полуходу</div>
-    </div>
-  );
 }
 
 /* ================= съеденные фигуры ================= */
@@ -1436,12 +1388,6 @@ export default function App() {
               winner={g.winner} movableFroms={g.movableFroms} onSquare={g.clickSquare}
             />
           </div>
-
-          {ply > 0 && (
-            <div className="hide-ll mx-auto max-w-[560px]">
-              <EvalChart start={g.start} pathNodes={g.path} ply={ply} gotoPly={g.gotoPly} />
-            </div>
-          )}
 
           <div className="mx-auto mt-4 max-w-[560px]">
             <div className="flex flex-wrap items-center gap-1.5">
