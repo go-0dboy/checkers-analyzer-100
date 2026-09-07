@@ -72,6 +72,47 @@ function support(b: Int8Array, r: number, c: number, side: 1 | -1): number {
   return Math.min(v, 8);
 }
 
+/* Оценка "большого треугольника" — ключевые поля для атаки */
+function bigTriangle(n: number, side: 1 | -1): number {
+  /* Для белых: 5, 9, 10 (верхний треугольник) */
+  /* Для чёрных: 41, 45, 46 (нижний треугольник) */
+  if (side === 1) {
+    if (n === 5 || n === 9 || n === 10) return 8;
+  } else {
+    if (n === 41 || n === 45 || n === 46) return 8;
+  }
+  return 0;
+}
+
+/* Оценка дамочной линии — близость к превращению */
+function kingLine(r: number, side: 1 | -1): number {
+  if (side === 1) {
+    /* Белые: ряд 0 — дамочный */
+    if (r === 0) return 12;
+    if (r === 1) return 6;
+    if (r === 2) return 3;
+  } else {
+    /* Чёрные: ряд 9 — дамочный */
+    if (r === 9) return 12;
+    if (r === 8) return 6;
+    if (r === 7) return 3;
+  }
+  return 0;
+}
+
+/* Оценка изолированных шашек — нет поддержки сзади */
+function isolated(b: Int8Array, r: number, c: number, side: 1 | -1): number {
+  const br = side === 1 ? r + 1 : r - 1;
+  if (br < 0 || br > 9) return 0;
+  for (const dc of [-1, 1]) {
+    const cc = c + dc;
+    if (cc >= 0 && cc < 10 && (br + cc) % 2 === 1) {
+      if (b[sqOf(br, cc)] * side > 0) return 0; /* есть поддержка */
+    }
+  }
+  return -5; /* изолированная шашка */
+}
+
 /** Статическая оценка с точки зрения белых. */
 export function evaluate(b: Int8Array): number {
   let total = 0;
@@ -84,15 +125,22 @@ export function evaluate(b: Int8Array): number {
     const v = b[n];
     if (v === 0) continue;
     const r = ROW[n];
+    const c = COL[n];
     if (v === 1) {
       s += MAN + (9 - r) * (endg ? 4 : 3) + (CENTRAL[n] ? 7 : 0) - (EDGE[n] ? 3 : 0);
-      if (n === 24) s += 6;
-      s += support(b, r, COL[n], 1);
+      if (n === 24) s += 6; /* "золотое поле" */
+      s += support(b, r, c, 1);
+      s += bigTriangle(n, 1);
+      s += kingLine(r, 1);
+      s += isolated(b, r, c, 1);
       if (r === 9 && wBack < 4) { wBack++; s += 6; }
     } else if (v === -1) {
       s -= MAN + r * (endg ? 4 : 3) + (CENTRAL[n] ? 7 : 0) - (EDGE[n] ? 3 : 0);
-      if (n === 27) s -= 6;
-      s -= support(b, r, COL[n], -1);
+      if (n === 27) s -= 6; /* "золотое поле" */
+      s -= support(b, r, c, -1);
+      s -= bigTriangle(n, -1);
+      s -= kingLine(r, -1);
+      s -= isolated(b, r, c, -1);
       if (r === 0 && bBack < 4) { bBack++; s -= 6; }
     } else {
       const mob = kingMob(b, n);
@@ -103,12 +151,44 @@ export function evaluate(b: Int8Array): number {
   return s;
 }
 
+/* ---------- Zobrist hashing ---------- */
+
+/* Генерируем случайные 64-битные числа для каждой комбинации (поле, фигура) */
+const ZOBRIST_PIECES = new BigUint64Array(51 * 5); /* 51 поле × 5 типов (0,1,2,-1,-2) */
+const ZOBRIST_SIDE = BigInt('0x123456789ABCDEF0');
+
+(function initZobrist() {
+  let seed = BigInt('0xDEADBEEFCAFEBABE');
+  const next = () => {
+    seed ^= seed << 13n;
+    seed ^= seed >> 7n;
+    seed ^= seed << 17n;
+    return seed;
+  };
+  for (let i = 0; i < ZOBRIST_PIECES.length; i++) {
+    ZOBRIST_PIECES[i] = next();
+  }
+})();
+
+function zobristKey(b: Int8Array, side: number): bigint {
+  let hash = 0n;
+  for (let n = 1; n <= 50; n++) {
+    const v = b[n];
+    if (v !== 0) {
+      const idx = n * 5 + (v + 2); /* v: -2,-1,0,1,2 → idx: 0,1,2,3,4 */
+      hash ^= ZOBRIST_PIECES[idx];
+    }
+  }
+  if (side < 0) hash ^= ZOBRIST_SIDE;
+  return hash;
+}
+
 /* ---------- персистентные структуры (живут между позициями) ---------- */
 
 interface TTEntry { depth: number; score: number; bound: 0 | 1 | 2; best: number }
 
 const persist = {
-  tt: new Map<string, TTEntry>(),
+  tt: new Map<bigint, TTEntry>(),
   hist: new Int32Array(64 * 64),
 };
 
@@ -120,19 +200,21 @@ interface SState { nodes: number; deadline: number; killers: Int32Array }
 
 const TIMEOUT = Symbol('timeout');
 
-function key(b: Int8Array, side: number): string {
-  let s = '';
-  for (let i = 1; i <= 50; i++) s += String.fromCharCode(b[i] + 3);
-  return s + (side > 0 ? 'w' : 'b');
-}
-
-const capVal = (m: Move): number => {
+/* MVV-LVA: Most Valuable Victim - Least Valuable Attacker */
+const capVal = (m: Move, b: Int8Array): number => {
   let v = m.captures.length * 10000;
-  if (m.king) v += 500;
+  /* Оцениваем ценность побитых фигур */
+  for (const cap of m.captures) {
+    const victim = b[cap];
+    if (Math.abs(victim) === 2) v += 500; /* дамка ценнее */
+    else v += 100; /* простая */
+  }
+  /* Штраф за использование дамки для взятия (LVA) */
+  if (m.king) v -= 50;
   return v;
 };
 
-function orderMoves(moves: Move[], bestCode: number, ply: number, st: SState): Move[] {
+function orderMoves(moves: Move[], bestCode: number, ply: number, st: SState, board: Int8Array): Move[] {
   const k = st.killers;
   const h = persist.hist;
   return moves.slice().sort((a, b) => {
@@ -140,10 +222,10 @@ function orderMoves(moves: Move[], bestCode: number, ply: number, st: SState): M
     const bc = b.from * 100 + b.to;
     const as = (ac === bestCode ? 10_000_000 : 0)
       + (ac === k[ply * 2] ? 900_000 : ac === k[ply * 2 + 1] ? 800_000 : 0)
-      + capVal(a) + (h[a.from * 64 + a.to] >> 6);
+      + capVal(a, board) + (h[a.from * 64 + a.to] >> 6);
     const bs = (bc === bestCode ? 10_000_000 : 0)
       + (bc === k[ply * 2] ? 900_000 : bc === k[ply * 2 + 1] ? 800_000 : 0)
-      + capVal(b) + (h[b.from * 64 + b.to] >> 6);
+      + capVal(b, board) + (h[b.from * 64 + b.to] >> 6);
     return bs - as;
   });
 }
@@ -176,7 +258,7 @@ function negamax(pos: Pos, depth: number, alpha: number, beta: number, ply: numb
   const moves = generateMoves(pos);
   if (moves.length === 0) return -(MATE - ply);
 
-  const k = key(pos.b, pos.side);
+  const k = zobristKey(pos.b, pos.side);
   const tt = persist.tt.get(k);
   if (tt && tt.depth >= depth && ply > 0) {
     if (tt.bound === 0) return tt.score;
@@ -187,7 +269,15 @@ function negamax(pos: Pos, depth: number, alpha: number, beta: number, ply: numb
 
   if (depth <= 0) return qsearch(pos, alpha, beta, ply, st);
 
-  const ordered = orderMoves(moves, tt ? tt.best : -1, ply, st);
+  /* Null-move pruning: если позиция хороша, пропуск хода всё равно должен быть хорош */
+  if (depth >= 3 && ply > 0 && !moves.some(m => m.captures.length > 0)) {
+    const nullPos: Pos = { b: pos.b, side: (pos.side * -1) as 1 | -1 };
+    const R = 2; /* редукция для null-move */
+    const nullScore = -negamax(nullPos, depth - 1 - R, -beta, -beta + 1, ply + 1, st);
+    if (nullScore >= beta) return beta;
+  }
+
+  const ordered = orderMoves(moves, tt ? tt.best : -1, ply, st, pos.b);
   let best = -Infinity;
   let bestCode = -1;
   let bound: 0 | 1 | 2 = 2;
@@ -254,7 +344,7 @@ function searchRoot(pos: Pos, depth: number, prev: Candidate[] | null, st: SStat
     m,
     s: prev?.find((p) => p.move.from === m.from && p.move.to === m.to)?.score ?? -Infinity,
   }));
-  scored.sort((a, b) => (b.s - a.s) || (capVal(b.m) - capVal(a.m)));
+  scored.sort((a, b) => (b.s - a.s) || (capVal(b.m, pos.b) - capVal(a.m, pos.b)));
 
   const lo = asp === null ? -Infinity : asp - 30;
   const hi = asp === null ? Infinity : asp + 30;
@@ -281,14 +371,14 @@ function searchRoot(pos: Pos, depth: number, prev: Candidate[] | null, st: SStat
   }
   results.sort((a, b) => b.score - a.score);
 
-  persist.tt.set(key(pos.b, pos.side), { depth, score: bestScore, bound: 0, best: best.from * 100 + best.to });
+  persist.tt.set(zobristKey(pos.b, pos.side), { depth, score: bestScore, bound: 0, best: best.from * 100 + best.to });
   housekeep();
 
   const pv: Move[] = [];
   let p: Pos = pos;
-  const seen = new Set<string>();
+  const seen = new Set<bigint>();
   for (let i = 0; i < 40; i++) {
-    const k = key(p.b, p.side);
+    const k = zobristKey(p.b, p.side);
     if (seen.has(k)) break;
     seen.add(k);
     const e = persist.tt.get(k);
