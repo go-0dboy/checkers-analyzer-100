@@ -1,0 +1,11 @@
+{
+  "appId": "ru.stokeletka.app",
+  "appName": "СтоКлетка",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  }
+}
