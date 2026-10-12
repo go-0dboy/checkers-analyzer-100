@@ -41,7 +41,9 @@ jobs:
           distribution: temurin
       - run: npm ci
       - name: Android SDK 36
-        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
       - run: bash scripts/build-apk.sh
       - uses: actions/upload-artifact@v4
         with:
@@ -73,7 +75,10 @@ jobs:
           java-version: '21'
           distribution: temurin
       - run: npm ci
-      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Android SDK 36
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
       - run: bash scripts/build-apk.sh --release
       - name: Publish signed APK
         env:
