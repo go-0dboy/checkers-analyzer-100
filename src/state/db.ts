@@ -11,6 +11,7 @@ export interface DbGame {
   white: string;
   black: string;
   event: string;
+  headers?: Record<string, string>;
   result: string;
   startFen: string;
   /** сериализованное дерево (serializeTree) */
@@ -43,30 +44,45 @@ function open(): Promise<IDBDatabase> {
   });
 }
 
-function tx<T>(db: IDBDatabase, mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest): Promise<T> {
+function tx<T>(
+  db: IDBDatabase,
+  mode: IDBTransactionMode,
+  fn: (store: IDBObjectStore) => IDBRequest,
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const t = db.transaction(STORE, mode);
     const req = fn(t.objectStore(STORE));
-    req.onsuccess = () => resolve(req.result as T);
+    t.oncomplete = () => resolve(req.result as T);
+    t.onabort = () => reject(t.error ?? new Error('Транзакция отменена'));
+    t.onerror = () => reject(t.error ?? new Error('Ошибка транзакции'));
     req.onerror = () => reject(req.error ?? new Error('ошибка операции с базой'));
   });
 }
 
 export async function listGames(): Promise<DbGame[]> {
   const db = await open();
-  const all = await tx<DbGame[]>(db, 'readonly', (s) => s.getAll());
-  db.close();
-  return all.sort((a, b) => (a.date < b.date ? 1 : -1));
+  try {
+    const all = await tx<DbGame[]>(db, 'readonly', (s) => s.getAll());
+    return all.sort((a, b) => (a.date < b.date ? 1 : -1));
+  } finally {
+    db.close();
+  }
 }
 
 export async function saveGame(g: DbGame): Promise<void> {
   const db = await open();
-  await tx(db, 'readwrite', (s) => s.put(g));
-  db.close();
+  try {
+    await tx(db, 'readwrite', (s) => s.put(g));
+  } finally {
+    db.close();
+  }
 }
 
 export async function deleteGame(id: string): Promise<void> {
   const db = await open();
-  await tx(db, 'readwrite', (s) => s.delete(id));
-  db.close();
+  try {
+    await tx(db, 'readwrite', (s) => s.delete(id));
+  } finally {
+    db.close();
+  }
 }

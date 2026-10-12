@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="bg" cx="30%" cy="20%" r="130%">
+      <stop offset="0%" stop-color="#1d3a40"/>
+      <stop offset="55%" stop-color="#122429"/>
+      <stop offset="100%" stop-color="#0a1416"/>
+    </radialGradient>
+    <radialGradient id="disc" cx="38%" cy="28%" r="85%">
+      <stop offset="0%" stop-color="#4d545c"/>
+      <stop offset="52%" stop-color="#262b31"/>
+      <stop offset="100%" stop-color="#0c0e11"/>
+    </radialGradient>
+    <linearGradient id="crown" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f6d489"/>
+      <stop offset="100%" stop-color="#c98f2e"/>
+    </linearGradient>
+  </defs>
+
+  <!-- подложка -->
+  <rect x="24" y="24" width="976" height="976" rx="232" fill="url(#bg)"/>
+  <rect x="24" y="24" width="976" height="976" rx="232" fill="none" stroke="#e6a53c" stroke-opacity="0.28" stroke-width="10"/>
+
+  <!-- намёк на доску в углу -->
+  <g opacity="0.13" fill="#dfe6df">
+    <rect x="112" y="728" width="104" height="104" rx="10"/>
+    <rect x="216" y="832" width="104" height="104" rx="10"/>
+    <rect x="112" y="832" width="104" height="104" rx="10" opacity="0.45"/>
+    <rect x="216" y="728" width="104" height="104" rx="10" opacity="0.45"/>
+  </g>
+
+  <!-- янтарный ободок и шашка-дамка -->
+  <circle cx="512" cy="572" r="258" fill="#e6a53c" opacity="0.5"/>
+  <circle cx="512" cy="564" r="250" fill="url(#disc)"/>
+  <circle cx="512" cy="564" r="250" fill="none" stroke="rgba(235,255,250,0.36)" stroke-width="12"/>
+  <circle cx="512" cy="564" r="196" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="16"/>
+  <ellipse cx="430" cy="462" rx="96" ry="56" fill="rgba(255,255,255,0.07)"/>
+
+  <!-- корона -->
+  <path d="M356 500 L412 372 L468 462 L512 336 L556 462 L612 372 L668 500 Z"
+        fill="url(#crown)" stroke="#8a5f1d" stroke-width="16" stroke-linejoin="round"/>
+  <rect x="350" y="500" width="324" height="58" rx="20" fill="url(#crown)" stroke="#8a5f1d" stroke-width="14"/>
+  <circle cx="412" cy="360" r="18" fill="#f6d489" stroke="#8a5f1d" stroke-width="8"/>
+  <circle cx="512" cy="324" r="20" fill="#f6d489" stroke="#8a5f1d" stroke-width="8"/>
+  <circle cx="612" cy="360" r="18" fill="#f6d489" stroke="#8a5f1d" stroke-width="8"/>
+  <circle cx="432" cy="529" r="10" fill="#8a5f1d" opacity="0.55"/>
+  <circle cx="512" cy="529" r="10" fill="#8a5f1d" opacity="0.55"/>
+  <circle cx="592" cy="529" r="10" fill="#8a5f1d" opacity="0.55"/>
+</svg>

@@ -1,24 +1,32 @@
 /* ============================================================
  * apply-icons.mjs — фирменные иконки приложения.
  *
- * Рендерит resources/icon.svg во все размеры Android-лаунчера
+ * Рендерит assets/app-icon.svg во все размеры Android-лаунчера
  * (заменяет шаблонные файлы Capacitor один-в-один, сохраняя
  * формат png/webp), а также собирает веб-фавиконки в public/.
  *
  * Запуск: node scripts/apply-icons.mjs   (после npx cap add/sync)
  * ============================================================ */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, statSync } from 'node:fs';
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  copyFileSync,
+  readdirSync,
+  statSync,
+} from 'node:fs';
 import { join, dirname, extname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const SVG_PATH = join(root, 'resources', 'icon.svg');
+const SVG_PATH = join(root, 'assets', 'app-icon.svg');
 const RES_DIR = join(root, 'android', 'app', 'src', 'main', 'res');
 const PUBLIC_DIR = join(root, 'public');
 
 if (!existsSync(SVG_PATH)) {
-  console.error('✗ resources/icon.svg не найден');
+  console.error('✗ assets/app-icon.svg не найден');
   process.exit(1);
 }
 
@@ -74,7 +82,10 @@ if (existsSync(RES_DIR)) {
     for (const name of readdirSync(dir)) {
       const p = join(dir, name);
       const st = statSync(p);
-      if (st.isDirectory()) { await walkAsync(p); continue; }
+      if (st.isDirectory()) {
+        await walkAsync(p);
+        continue;
+      }
       if (/^ic_launcher.*\.(png|webp)$/i.test(name)) {
         const density = basename(dirname(p));
         const size =
@@ -88,7 +99,7 @@ if (existsSync(RES_DIR)) {
   await walkAsync(RES_DIR);
 
   /* 2) если шаблонных файлов нет — создаём классический набор */
-  if (replaced === 0) {
+  {
     for (const [dir, size] of Object.entries(ANDROID_SIZES)) {
       for (const name of ['ic_launcher.png', 'ic_launcher_round.png']) {
         await writeIcon(join(RES_DIR, dir, name), size);
@@ -100,6 +111,17 @@ if (existsSync(RES_DIR)) {
       created++;
     }
   }
+  const adaptive = join(RES_DIR, 'mipmap-anydpi-v26');
+  mkdirSync(adaptive, { recursive: true });
+  const xml =
+    '<?xml version="1.0" encoding="utf-8"?><adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@color/ic_launcher_background"/><foreground android:drawable="@mipmap/ic_launcher_foreground"/></adaptive-icon>';
+  writeFileSync(join(adaptive, 'ic_launcher.xml'), xml);
+  writeFileSync(join(adaptive, 'ic_launcher_round.xml'), xml);
+  mkdirSync(join(RES_DIR, 'values'), { recursive: true });
+  writeFileSync(
+    join(RES_DIR, 'values', 'ic_launcher_background.xml'),
+    '<?xml version="1.0" encoding="utf-8"?><resources><color name="ic_launcher_background">#0B1416</color></resources>',
+  );
   console.log(`✓ Android-иконки: заменено ${replaced}, создано ${created}`);
 } else {
   console.log('· android/ ещё нет — иконки будут применены после cap add/sync');
