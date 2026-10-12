@@ -274,12 +274,12 @@ preloadSprites();
 interface PieceInfo { n: number; color: Side; king: boolean; id: number }
 
 function BoardView({
-  pos, legal, selected, lastMove, best, preview, flipped, showNums, winner, movableFroms, onSquare,
+  pos, legal, selected, lastMove, best, preview, flipped, showNums, winner, onSquare,
 }: {
   pos: Pos; legal: Move[]; selected: number | null; lastMove: Move | null;
   best: Move | null; preview: Move | null;
   flipped: boolean; showNums: boolean;
-  winner: Side | null; movableFroms: Set<number>; onSquare: (n: number) => void;
+  winner: Side | null; onSquare: (n: number) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [px, setPx] = useState(360);
@@ -539,8 +539,8 @@ function CapturedDots({ start, pos, color }: { start: Pos; pos: Pos; color: Side
 
 function TbBlock({ tb, b }: { tb: NonNullable<GameApi['tb']>; b: Int8Array }) {
   const m = materialInfo(b);
-  const label = tb.result === 1 ? 'Выигрыш белых' : tb.result === -1 ? 'Выигрыш чёрных' : 'Ничья';
-  const conf = tb.confidence === 'theory' ? 'точная теория' : 'практически решено';
+  const label = tb.result === 1 ? 'Материал в пользу белых' : 'Материал в пользу чёрных';
+  const conf = 'приблизительно';
   const tone = tb.result === 0
     ? 'border-white/15 bg-white/[.05]'
     : tb.result === 1 ? 'border-[#5fb287]/45 bg-[#5fb287]/10' : 'border-[#d9534a]/45 bg-[#d9534a]/10';
@@ -548,7 +548,7 @@ function TbBlock({ tb, b }: { tb: NonNullable<GameApi['tb']>; b: Int8Array }) {
   return (
     <div className={`mt-3 rounded-lg border px-3 py-2.5 ${tone}`}>
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-        <span className="chip chip-amber shrink-0">ЭНДШПИЛЬ · БАЗА ФИГУР</span>
+        <span className="chip chip-amber shrink-0">ЭНДШПИЛЬ · МАТЕРИАЛ</span>
         <span className={`text-xs font-bold ${toneText}`}>{label}</span>
         <span className={`ml-auto text-[9px] uppercase tracking-[.14em] opacity-80 ${toneText}`}>{conf}</span>
       </div>
@@ -563,7 +563,7 @@ function AnalysisPanel({
   game, s, onPlay, onHover,
 }: {
   game: GameApi; s: Settings;
-  onPlay: (from: number, to: number) => void;
+  onPlay: (from: number, to: number, move?: Move) => void;
   onHover: (c: CandidateLite | null) => void;
 }) {
   const { engine, boardKey, pos, tb, engineKind } = game;
@@ -574,10 +574,10 @@ function AnalysisPanel({
   const isScan = engineKind === 'scan' && !thinking;
 
   const scoreText = whiteScore === null ? '—'
-    : engine.mate ? (whiteScore > 0 ? 'мат · белые' : 'мат · чёрные')
+    : engine.mate ? (whiteScore > 0 ? 'выигрыш · белые' : 'выигрыш · чёрные')
       : `${whiteScore / 100 > 0 ? '+' : ''}${(whiteScore / 100).toFixed(2)}`;
 
-  const verdict = whiteScore === null ? 'расчёт позиции…'
+  const verdict = game.draw ? `Ничья: ${game.draw}` : game.winner ? 'Партия завершена' : engine.error ? engine.error : whiteScore === null ? (engine.book ? 'Дебютная рекомендация' : 'расчёт позиции…')
     : engine.mate ? 'форсированный выигрыш'
       : Math.abs(whiteScore) < 15 ? 'равная позиция'
         : Math.abs(whiteScore) < 60 ? 'небольшой перевес'
@@ -621,11 +621,16 @@ function AnalysisPanel({
 
       {thinking && <div className="shimmer mt-2 h-0.5 w-full overflow-hidden rounded-full opacity-70" />}
 
+      {game.routeChoices.length > 0 && <div className="mt-3 rounded-lg border border-acc/40 p-3">
+        <p className="text-xs">Выберите маршрут взятия:</p>
+        {game.routeChoices.map((move, index) => <button key={index} type="button" className="mt-2 block text-acc2" onClick={() => game.chooseRoute(move)}>{[move.from, ...move.path].join(' × ')} (сняты: {move.captures.join(', ')})</button>)}
+        <button type="button" onClick={game.cancelRoute} className="mt-2 text-xs text-mut">Отмена</button>
+      </div>}
       {tb && <TbBlock tb={tb} b={pos.b} />}
 
       {engine.best && !stale ? (
         <button
-          type="button" onClick={() => onPlay(engine.best!.from, engine.best!.to)}
+          type="button" onClick={() => onPlay(engine.best!.from, engine.best!.to, engine.best!)}
           className="group mt-3 flex w-full items-center justify-between rounded-lg border border-acc/40 bg-acc/10 px-4 py-3 text-left transition-all duration-150 hover:border-acc/80 hover:bg-acc/18 active:scale-[.98]"
         >
           <span>
@@ -641,7 +646,7 @@ function AnalysisPanel({
       ) : (
         <div className="mt-3 flex items-center gap-3 rounded-lg border border-white/8 bg-white/[.03] px-4 py-3">
           <span className="spinner" />
-          <span className="text-xs text-mut">{stale ? 'позиция изменилась — пересчёт…' : 'движок ищет лучший ход…'}</span>
+          <span className="text-xs text-mut">{game.draw ? 'Ничья' : game.winner ? 'Партия завершена' : engine.error ? engine.error : stale ? 'позиция изменилась — пересчёт…' : 'движок ищет лучший ход…'}</span>
         </div>
       )}
 
@@ -650,13 +655,13 @@ function AnalysisPanel({
           <div className="sr-only">Кандидаты</div>
           <ul className="divide-y divide-white/[.06] overflow-hidden rounded-lg border border-white/10">
             {engine.candidates.map((c, i) => {
-              const sc = (c.score * pos.side) / 100;
+              const sc = c.score === null ? null : (c.score * pos.side) / 100;
               return (
                 <li key={`${c.from}-${c.to}-${i}`}>
                   <button
                     type="button"
                     onMouseEnter={() => onHover(c)} onFocus={() => onHover(c)}
-                    onClick={() => onPlay(c.from, c.to)}
+                    onClick={() => onPlay(c.from, c.to, c)}
                     className="flex w-full items-center gap-2.5 bg-white/[.02] px-3 py-2.5 text-left transition-colors hover:bg-acc/10 active:bg-acc/20"
                   >
                     <span className="w-4 font-mono text-[11px] text-dim">{i + 1}</span>
@@ -666,8 +671,8 @@ function AnalysisPanel({
                     {c.caps > 0 && (
                       <span className="rounded bg-[#d9534a]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#e58a82]">×{c.caps}</span>
                     )}
-                    <span className={`ml-auto font-mono text-xs tabular-nums ${sc >= 0 ? 'text-[#8ed0ae]' : 'text-[#c9a0a0]'}`}>
-                      {sc > 0 ? '+' : ''}{sc.toFixed(2)}
+                    <span className={`ml-auto font-mono text-xs tabular-nums ${sc === null ? 'text-mut' : sc >= 0 ? 'text-[#8ed0ae]' : 'text-[#c9a0a0]'}`}>
+                      {sc === null ? '—' : `${sc > 0 ? '+' : ''}${sc.toFixed(2)}`}
                     </span>
                   </button>
                 </li>
@@ -684,7 +689,7 @@ function AnalysisPanel({
             {engine.pv.map((m, i) => (
               <span key={i}>
                 <span className="text-dim">{Math.floor(i / 2) + 1}{i % 2 === 0 ? '.' : '…'}</span>{' '}
-                <span className={i === 0 ? 'text-acc2' : ''}>{m.from}–{m.to}</span>{' '}
+                <span className={i === 0 ? 'text-acc2' : ''}>{m.from}{m.captures.length ? 'x' : '–'}{m.to}</span>{' '}
               </span>
             ))}
           </div>
@@ -692,7 +697,7 @@ function AnalysisPanel({
       )}
 
       {s.nnEnabled && game.nnMeta && !thinking && !isScan && (
-        <div className="mt-2 text-right text-[9px] text-dim">оценка смешана с нейросетью (вес {Math.round(s.nnBlend * 100)}%)</div>
+        <div className="mt-2 text-right text-[9px] text-dim">нейросеть в оценке поиска (вес {Math.round(s.nnBlend * 100)}%)</div>
       )}
     </section>
   );
@@ -1179,7 +1184,7 @@ function showMini(v: number): ReactNode {
 /* ================= нейросеть ================= */
 
 function NetTab({ game }: { game: GameApi }) {
-  const { nnMeta, training, trainProg, trainOnPDN, clearNet, engineKind, scanAvail } = game;
+  const { nnMeta, training, trainProg, trainOnPDN, clearNet, cancelTraining, engineKind, scanAvail } = game;
   const fileRef = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
@@ -1196,21 +1201,21 @@ function NetTab({ game }: { game: GameApi }) {
   return (
     <section className="panel flex flex-col p-3.5 sm:p-4">
       <header className="mb-2 flex items-center justify-between gap-2">
-        <h2 className="font-display text-[10px] font-bold tracking-[.22em] text-mut">НЕЙРОСЕТЬ · NNUE</h2>
+        <h2 className="font-display text-[10px] font-bold tracking-[.22em] text-mut">НЕЙРОСЕТЬ · ЭКСПЕРИМЕНТ</h2>
         <span className="chip">{nnMeta ? 'обучена' : 'нет весов'}</span>
       </header>
 
       <p className="text-[11px] leading-relaxed text-mut">
-        Обучите собственную сеть на ваших партиях — как Stockfish учится на позициях.
-        Один файл PDN 3.0 может содержать сколько угодно партий; по каждой извлекаются
+        Экспериментальное обучение на исходах партий. Улучшение игровой силы не подтверждено.
+        Нужны минимум три разные корректные партии с результатом; по каждой извлекаются
         позиции с исходом (1-0 / 0-1 / 1-1).
       </p>
 
       <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
-        <span className="chip">200 → 48 → 1 · ReLU/σ</span>
+        <span className="chip">201 → 64 → 1 · ReLU/σ</span>
         <span className="chip">Adam · ранняя остановка</span>
         <span className="chip">аугментация rot180</span>
-        <span className="chip">val-сплит 90/10</span>
+        <span className="chip">сплит по партиям: train / val / test</span>
       </div>
 
       {msg && (
@@ -1242,6 +1247,7 @@ function NetTab({ game }: { game: GameApi }) {
         <span className="text-[10px] text-dim">мульти-партийный PDN 3.0 · .pdn / .txt</span>
       </button>
 
+      {training && <button type="button" className="mt-2 text-xs text-mut" onClick={cancelTraining}>Остановить обучение</button>}
       {training && trainProg && (
         <div className="mt-3">
           <div className="flex items-center justify-between text-[11px] text-mut">
@@ -1258,6 +1264,7 @@ function NetTab({ game }: { game: GameApi }) {
         <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
           <span className="chip">обучена: {nnMeta.games} парт. / {nnMeta.positions} поз.</span>
           <span className="chip">val-loss {nnMeta.loss.toFixed(3)}</span>
+          {nnMeta.testLoss !== undefined && <span className="chip">test-loss {nnMeta.testLoss.toFixed(3)}</span>}
           <span className="chip">{nnMeta.date}</span>
         </div>
       )}
@@ -1274,12 +1281,12 @@ function NetTab({ game }: { game: GameApi }) {
       <div className="mt-3 rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-[10px] leading-relaxed text-dim">
         <span className="font-semibold text-mut">Активный движок: </span>
         {engineKind === 'scan'
-          ? 'Scan 3.1 (WASM) — сильнейший открытый движок 100-клеточных шашек.'
+          ? 'Scan 3.1 (WASM), pattern-оценка.'
           : scanAvail
             ? 'встроенный α-β (Scan отключён в настройках).'
-            : 'встроенный α-β + PVS/LMR. Scan WASM появится, если положить scan.js/scan.wasm в public/scan/.'}
+            : 'встроенный α-β + MultiPV. Scan WASM появится, если положить scan.js/scan.wasm в public/scan/.'}
         <span className="mt-1 block">
-          Сеть смешивается с оценкой α-β на корне поиска (вес — в настройках) и хранится локально; работает офлайн.
+          Сеть участвует в оценке внутри поиска (вес — в настройках) и хранится локально; работает офлайн.
         </span>
       </div>
     </section>
@@ -1325,6 +1332,7 @@ export default function App() {
 
   const [tab, setTab] = useState<Tab>('analysis');
   const [preview, setPreview] = useState<Move | null>(null);
+  useEffect(() => { setPreview(null); }, [g.boardKey]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const gameRef = useRef(game);
   gameRef.current = game;
@@ -1346,20 +1354,20 @@ export default function App() {
   const engineReady = g.engine.forKey === g.boardKey;
   const best = engineReady && s.showArrows ? g.engine.best : null;
   const bestFull = useMemo(
-    () => (best ? g.legal.find((m) => m.from === best.from && m.to === best.to) ?? null : null),
+    () => (best ? best : null),
     [best, g.legal],
   );
 
   const handleHover = (c: CandidateLite | null) => {
     if (!c || !s.showArrows) { setPreview(null); return; }
-    setPreview(g.legal.find((m) => m.from === c.from && m.to === c.to) ?? null);
+    setPreview(c);
   };
 
   const engineLabel = g.engineKind === 'scan'
     ? 'Scan 3.1 · WASM'
     : g.scanAvail && !s.useScan
       ? 'α-β (Scan выкл.)'
-      : 'α-β · PVS+LMR';
+      : 'α-β · MultiPV';
 
   const ply = g.path.length - 1;
 
@@ -1399,7 +1407,7 @@ export default function App() {
             <BoardView
               pos={g.pos} legal={g.legal} selected={g.selected} lastMove={g.lastMove}
               best={bestFull} preview={preview} flipped={g.flipped} showNums={g.showNums}
-              winner={g.winner} movableFroms={g.movableFroms} onSquare={g.clickSquare}
+              winner={g.winner} onSquare={g.clickSquare}
             />
           </div>
 
@@ -1416,7 +1424,7 @@ export default function App() {
                 <CapturedDots start={g.start} pos={g.pos} color={WHITE} />
               </span>
               <span className="ml-auto font-mono text-[10px] text-dim">
-                {g.winner !== null ? 'партия окончена' : `ход ${g.pos.side === WHITE ? 'белых' : 'чёрных'}`}
+                {g.draw ? 'ничья' : g.winner !== null ? 'партия окончена' : `ход ${g.pos.side === WHITE ? 'белых' : 'чёрных'}`}
               </span>
             </div>
 
@@ -1461,7 +1469,7 @@ export default function App() {
 
           <div key={tab} className="reveal flex min-w-0 flex-col gap-3.5">
             {tab === 'analysis' && (
-              <AnalysisPanel game={g} s={s} onPlay={(f, t) => g.playFromTo(f, t)} onHover={handleHover} />
+              <AnalysisPanel game={g} s={s} onPlay={(f, t, m) => g.playFromTo(f, t, m)} onHover={handleHover} />
             )}
             {tab === 'moves' && <MovesTab game={g} />}
             {tab === 'db' && <DbTab game={g} />}

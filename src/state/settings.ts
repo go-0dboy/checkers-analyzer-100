@@ -27,7 +27,7 @@ export const DEFAULT_SETTINGS: Settings = {
   engineDepth: 9,
   engineTime: 1300,
   humanStyle: false,
-  nnEnabled: true,
+  nnEnabled: false,
   nnBlend: 0.35,
   useScan: true,
 };
@@ -37,11 +37,38 @@ const KEY = 'sk100.settings.v2';
 export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<Settings>) };
-  } catch { /* приватный режим */ }
+    if (raw) {
+      const d = JSON.parse(raw) as Partial<Settings>;
+      const out = { ...DEFAULT_SETTINGS };
+      for (const key of [
+        'showArrows',
+        'autoCapture',
+        'autoSingle',
+        'humanStyle',
+        'nnEnabled',
+        'useScan',
+      ] as const)
+        if (typeof d[key] === 'boolean') out[key] = d[key]!;
+      for (const [key, min, max] of [
+        ['captureDelay', 100, 5000],
+        ['engineDepth', 1, 40],
+        ['engineTime', 100, 60000],
+        ['nnBlend', 0, 0.8],
+      ] as const)
+        if (Number.isFinite(d[key])) out[key] = Math.min(max, Math.max(min, d[key]!));
+      out.engineDepth = Math.floor(out.engineDepth);
+      return out;
+    }
+  } catch {
+    /* приватный режим */
+  }
   return { ...DEFAULT_SETTINGS };
 }
 
 export function saveSettings(s: Settings): void {
-  try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* noop */ }
+  try {
+    localStorage.setItem(KEY, JSON.stringify(s));
+  } catch {
+    /* noop */
+  }
 }

@@ -3,7 +3,15 @@
  * комментарии и оценки ходов (NAG) — модель данных PDN 3.0.
  * ============================================================ */
 
-import { applyMove, generateMoves, type Move, type Pos } from '../engine/core';
+import {
+  applyMove,
+  generateMoves,
+  sameMove,
+  isMove,
+  moveNotation,
+  type Move,
+  type Pos,
+} from '../engine/core';
 
 export interface TreeNode {
   id: string;
@@ -18,11 +26,17 @@ export interface TreeNode {
 }
 
 export const NAG_SYMBOLS: Record<number, string> = {
-  1: '!', 2: '?', 3: '!!', 4: '??', 5: '!?', 6: '?!',
+  1: '!',
+  2: '?',
+  3: '!!',
+  4: '??',
+  5: '!?',
+  6: '?!',
 };
 
 let seq = 0;
-const genId = () => `n${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+const genId = () =>
+  `n${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 export function createNode(move: Move | null, parent: TreeNode | null): TreeNode {
   return { id: genId(), move, comment: '', nags: [], children: [], parent };
@@ -36,14 +50,17 @@ export function rootTree(): TreeNode {
 export function pathTo(node: TreeNode): TreeNode[] {
   const arr: TreeNode[] = [];
   let cur: TreeNode | null = node;
-  while (cur) { arr.unshift(cur); cur = cur.parent; }
+  while (cur) {
+    arr.unshift(cur);
+    cur = cur.parent;
+  }
   return arr;
 }
 
 /** Нотация хода узла: 32-28 / 28x19 + символы NAG. */
 export function nodeSan(n: TreeNode): string {
   if (!n.move) return '';
-  const s = `${n.move.from}${n.move.captures.length > 0 ? 'x' : '-'}${n.move.to}`;
+  const s = moveNotation(n.move);
   return s + n.nags.map((g) => NAG_SYMBOLS[g] ?? '').join('');
 }
 
@@ -52,10 +69,14 @@ export function pathPositions(start: Pos, path: TreeNode[]): Pos[] {
   const res: Pos[] = [start];
   for (let i = 1; i < path.length; i++) {
     const mv = path[i].move;
-    if (!mv) { res.push(res[res.length - 1]); continue; }
+    if (!mv) {
+      res.push(res[res.length - 1]);
+      continue;
+    }
     const cur = res[res.length - 1];
     const legal = generateMoves(cur);
-    const found = legal.find((l) => l.from === mv.from && l.to === mv.to) ?? mv;
+    const found = legal.find((l) => sameMove(l, mv));
+    if (!found) throw new Error(`Нелегальный ход в дереве: ${moveNotation(mv)}`);
     res.push(applyMove(cur, found));
   }
   return res;
@@ -63,8 +84,12 @@ export function pathPositions(start: Pos, path: TreeNode[]): Pos[] {
 
 /** Число полуходов основной линии. */
 export function mainlineLength(root: TreeNode): number {
-  let n = root; let c = 0;
-  while (n.children.length > 0) { n = n.children[0]; c++; }
+  let n = root;
+  let c = 0;
+  while (n.children.length > 0) {
+    n = n.children[0];
+    c++;
+  }
   return c;
 }
 
@@ -92,7 +117,21 @@ export function serializeTree(root: TreeNode): string {
 
 export function deserializeTree(json: string): TreeNode | null {
   try {
-    const build = (d: NodeData, parent: TreeNode | null): TreeNode => {
+    const ids = new Set<string>();
+    let count = 0;
+    const build = (d: NodeData, parent: TreeNode | null, depth = 0): TreeNode => {
+      if (
+        !d ||
+        typeof d !== 'object' ||
+        depth > 500 ||
+        ++count > 10000 ||
+        !Array.isArray(d.children) ||
+        (parent ? !isMove(d.move) : d.move !== null) ||
+        (d.comment !== undefined && typeof d.comment !== 'string') ||
+        (d.nags !== undefined &&
+          (!Array.isArray(d.nags) || !d.nags.every((n) => Number.isInteger(n) && n >= 1 && n <= 6)))
+      )
+        throw new Error('Повреждённое дерево');
       const n: TreeNode = {
         id: d.id || genId(),
         move: d.move ?? null,
@@ -101,11 +140,41 @@ export function deserializeTree(json: string): TreeNode | null {
         children: [],
         parent,
       };
-      n.children = (d.children ?? []).map((c) => build(c, n));
+      if (ids.has(n.id)) throw new Error('Повторный ID узла');
+      ids.add(n.id);
+      n.children = d.children.map((c) => build(c, n, depth + 1));
       return n;
     };
     return build(JSON.parse(json) as NodeData, null);
   } catch {
     return null;
+  }
+}
+
+/** Stored paths exclude the root and must form a connected chain. */
+export function resolvePath(root: TreeNode, ids: string[]): TreeNode[] {
+  const nodes = [root];
+  let cur = root;
+  for (const id of ids) {
+    const next = cur.children.find((n) => n.id === id);
+    if (!next) break;
+    nodes.push(next);
+    cur = next;
+  }
+  return nodes;
+}
+
+export function validateTree(start: Pos, root: TreeNode): boolean {
+  const visit = (pos: Pos, n: TreeNode): boolean => {
+    const legal = generateMoves(pos);
+    return n.children.every((child) => {
+      const move = child.move && legal.find((m) => sameMove(m, child.move!));
+      return !!move && visit(applyMove(pos, move), child);
+    });
+  };
+  try {
+    return visit(start, root);
+  } catch {
+    return false;
   }
 }
