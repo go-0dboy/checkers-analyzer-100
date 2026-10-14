@@ -335,13 +335,6 @@ export function moveNotation(m: Move): string {
   return m.captures.length ? [m.from, ...m.path].join('x') : `${m.from}-${m.to}`;
 }
 
-export function positionsFrom(start: Pos, moves: Move[], ply: number): Pos[] {
-  const res: Pos[] = [start];
-  for (let i = 0; i < Math.min(ply, moves.length); i++)
-    res.push(applyMove(res[res.length - 1], moves[i]));
-  return res;
-}
-
 /** Темпы (разность темпов) — для панели анализа. */
 export function tempi(b: Int8Array): number {
   let t = 0;

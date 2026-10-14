@@ -70,3 +70,17 @@ it('late errors from a replaced worker cannot cancel the new search', async () =
   expect(await next.promise).toMatchObject({ id: 2 });
   client.dispose();
 });
+
+it('creates workers only when analysis is requested, including after cancellation', async () => {
+  vi.stubGlobal('Worker', FakeWorker);
+  const client = new EngineClient();
+  expect(FakeWorker.all).toHaveLength(0);
+  const first = client.analyze(req);
+  expect(FakeWorker.all).toHaveLength(1);
+  first.cancel();
+  expect(FakeWorker.all).toHaveLength(1);
+  const second = client.analyze(req);
+  expect(FakeWorker.all).toHaveLength(2);
+  second.cancel();
+  client.dispose();
+});

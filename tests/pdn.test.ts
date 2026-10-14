@@ -71,3 +71,35 @@ it('rejects structurally corrupt storage', () => {
     deserializeTree('{"move":null,"children":[{"move":{"from":0},"children":[]}]}'),
   ).toBeNull();
 });
+
+it('rejects subsequent moves after a terminal result', () => {
+  expect(parsePDNFull('1.32-28 1-0 19-23').error).toContain('После результата');
+  expect(parsePDNFull('1.32-28 (1.33-29 0-1 19-23) *').error).toContain('После результата');
+  expect(parsePDNFull('1.32-28 (1.33-29 0-1) 19-23 *').error).toBeNull();
+});
+
+it('splits inline and headerless games without splitting comments or variations', () => {
+  const text =
+    '[Event "A"] 1.32-28 {fake [Event "C"] 0-1} (1.33-29 0-1) 19-23 1-0 [Event "B"] 1.33-29 17-22 0-1';
+  const blocks = splitGames(text);
+  expect(blocks).toHaveLength(2);
+  expect(blocks.map((b) => parsePDNFull(b).headers.Event)).toEqual(['A', 'B']);
+  expect(blocks.every((b) => !parsePDNFull(b).error)).toBe(true);
+  expect(parsePDNFull(text).error).toContain('несколько партий');
+  expect(splitGames('1.32-28 1-0 1.33-29 0-1')).toHaveLength(2);
+  expect(splitGames('1.32-28 1-0\n1. 33-29 0-1')).toHaveLength(2);
+});
+
+it('uses the same maximum line length for import and persistence', () => {
+  const line = (count: number) =>
+    '[FEN "W:WK46:BK1"]\n' +
+    Array.from({ length: count }, (_, i) => ['46-41', '1-6', '41-46', '6-1'][i % 4]).join(' ') +
+    ' *';
+  const accepted = parsePDNFull(line(500));
+  expect(accepted.error).toBeNull();
+  expect(accepted.movesParsed).toBe(500);
+  const restored = deserializeTree(serializeTree(accepted.root));
+  expect(restored).not.toBeNull();
+  expect(validateTree(accepted.start, restored!)).toBe(true);
+  expect(parsePDNFull(line(501)).error).toContain('500');
+});

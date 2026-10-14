@@ -27,6 +27,8 @@ import {
   createNode,
   deserializeTree,
   mainlineLength,
+  MAX_TREE_DEPTH,
+  MAX_TREE_NODES,
   pathPositions,
   pathTo,
   rootTree,
@@ -91,6 +93,8 @@ interface GameState {
 export function useGame(s: Settings) {
   const [tick, setTick] = useState(0);
   const bump = () => setTick((t) => t + 1);
+  const [structureTick, setStructureTick] = useState(0);
+  const recoveryRef = useRef<string | null>(null);
 
   const [state, setState] = useState<GameState>(() => {
     const fresh = (): GameState => ({
@@ -105,13 +109,15 @@ export function useGame(s: Settings) {
     try {
       const raw = localStorage.getItem(GAME_KEY);
       if (raw) {
+        recoveryRef.current = raw;
         const d = JSON.parse(raw);
-        const start = (d.startFen && parseFen(d.startFen)) || { b: startBoard(), side: WHITE };
-        const root = (d.treeJson && deserializeTree(d.treeJson)) || rootTree();
-        if (!validateTree(start, root)) return fresh();
+        const start = parseFen(d.startFen);
+        const root = typeof d.treeJson === 'string' ? deserializeTree(d.treeJson) : null;
+        if (!start || !root || !validateTree(start, root)) return fresh();
         const path: string[] = Array.isArray(d.path)
           ? d.path.filter((id: unknown) => typeof id === 'string')
           : [];
+        recoveryRef.current = null;
         return {
           start,
           root,
@@ -128,6 +134,8 @@ export function useGame(s: Settings) {
     return fresh();
   });
 
+  const [recovery, setRecovery] = useState(recoveryRef.current);
+  const [storageError, setStorageError] = useState<string | null>(null);
   const { start, root, path, flipped, showNums, headers, result } = state;
 
   /* ---------- производные: текущий узел, позиция, легальные ходы ---------- */
@@ -140,12 +148,16 @@ export function useGame(s: Settings) {
     walk(root);
     return m;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [root, tick]);
+  }, [root, structureTick]);
 
-  const pathNodes = useMemo(() => resolvePath(root, path), [root, path, tick]);
+  const pathNodes = useMemo(() => resolvePath(root, path), [root, path]);
 
   const curNode = pathNodes[pathNodes.length - 1];
-  const positions = useMemo(() => pathPositions(start, pathNodes), [start, pathNodes]);
+  const positionCache = useMemo(() => new WeakMap<TreeNode, Pos>(), [start, root]);
+  const positions = useMemo(
+    () => pathPositions(start, pathNodes, positionCache),
+    [start, pathNodes, positionCache],
+  );
   const pos = positions[positions.length - 1] ?? start;
 
   const legal = useMemo(() => generateMoves(pos), [pos]);
@@ -176,7 +188,9 @@ export function useGame(s: Settings) {
   const hintTimer = useRef<number | undefined>(undefined);
   const [engineState, setEngineState] = useState<EngineState>(IDLE);
   const [engineKind, setEngineKind] = useState<EngineKind>('alpha-beta');
-  const [scanAvail, setScanAvail] = useState(false);
+  const [scanAvail, setScanAvail] = useState<boolean | null>(null);
+  const [analysisRevision, setAnalysisRevision] = useState(0);
+  const humanStyle = s.humanStyle && !s.useScan;
 
   const boardKey = useMemo(() => pos.b.join('') + pos.side, [pos]);
   const lastMove = curNode.move ?? null;
@@ -193,17 +207,6 @@ export function useGame(s: Settings) {
     setSelected(null);
     setRouteChoices([]);
   }, [boardKey]);
-
-  /* ---------- Scan WASM ---------- */
-  useEffect(() => {
-    let on = true;
-    void getScan().then((scan) => {
-      if (on) setScanAvail(scan !== null);
-    });
-    return () => {
-      on = false;
-    };
-  }, []);
 
   /* ---------- база фигур ---------- */
   const tb = useMemo<TbVerdict | null>(() => {
@@ -229,7 +232,9 @@ export function useGame(s: Settings) {
     void (async () => {
       if (s.useScan) {
         const scan = scanRef.current ?? (await getScan());
+        if (genRef.current !== gen) return;
         scanRef.current = scan;
+        setScanAvail(scan !== null);
         if (scan && genRef.current === gen) {
           const t0 = performance.now();
           const r = await scan.analyze(
@@ -278,7 +283,7 @@ export function useGame(s: Settings) {
           startFen,
           timeMs: s.engineTime,
           maxDepth: s.engineDepth,
-          humanStyle: s.humanStyle,
+          humanStyle,
         },
         (info) => {
           if (genRef.current !== gen) return;
@@ -290,7 +295,11 @@ export function useGame(s: Settings) {
       const res = await handle.promise;
       if (genRef.current !== gen) return;
       if (!res) {
-        setEngineState({ ...IDLE, forKey: boardKey });
+        setEngineState({
+          ...IDLE,
+          forKey: boardKey,
+          error: 'Анализ не завершён: ошибка движка или превышено время ожидания',
+        });
         return;
       }
       setEngineState({
@@ -331,30 +340,69 @@ export function useGame(s: Settings) {
     legal,
     s.engineDepth,
     s.engineTime,
-    s.humanStyle,
+    humanStyle,
+    analysisRevision,
     s.useScan,
     draw,
   ]);
 
   /* ---------- автосохранение ---------- */
+  const persistRef = useRef<(() => void) | null>(null);
+  const savedStateRef = useRef<GameState | null>(null);
+  const serializedRef = useRef<{ root: TreeNode; tick: number; json: string } | null>(null);
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        GAME_KEY,
-        JSON.stringify({
-          startFen,
-          treeJson: serializeTree(root),
-          path,
-          flipped,
-          showNums,
-          headers,
-          result,
-        }),
-      );
-    } catch {
-      /* приватный режим */
+    if (recovery) {
+      persistRef.current = null;
+      return;
     }
-  }, [startFen, root, path, flipped, showNums, headers, result, tick]);
+    const persist = () => {
+      try {
+        let tree = serializedRef.current;
+        if (!tree || tree.root !== root || tree.tick !== tick) {
+          tree = { root, tick, json: serializeTree(root) };
+          serializedRef.current = tree;
+        }
+        localStorage.setItem(
+          GAME_KEY,
+          JSON.stringify({
+            startFen,
+            treeJson: tree.json,
+            path,
+            flipped,
+            showNums,
+            headers,
+            result,
+          }),
+        );
+        setStorageError(null);
+      } catch {
+        setStorageError('Автосохранение недоступно. Скачайте PDN, чтобы сохранить разбор.');
+      }
+    };
+    persistRef.current = persist;
+    const annotationsOnly = savedStateRef.current === state;
+    savedStateRef.current = state;
+    if (!annotationsOnly) {
+      persist();
+      return;
+    }
+    const timer = window.setTimeout(persist, 300);
+    return () => window.clearTimeout(timer);
+  }, [state, startFen, root, path, flipped, showNums, headers, result, tick, recovery]);
+
+  useEffect(() => {
+    const flush = () => persistRef.current?.();
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onVisibility);
+      flush();
+    };
+  }, []);
 
   /* ---------- автопроигрывание основной линии ---------- */
   useEffect(() => {
@@ -408,6 +456,10 @@ export function useGame(s: Settings) {
   /* ---------- ходы: существующий узел или новое ветвление ---------- */
   const playFromTo = useCallback(
     (from: number, to: number, route?: Move): boolean => {
+      if (recovery) {
+        flashHint('Сначала скачайте повреждённое сохранение и начните новую партию');
+        return false;
+      }
       const matches = legal.filter((m) => m.from === from && m.to === to);
       if (!route && matches.length > 1) {
         setRouteChoices(matches);
@@ -421,14 +473,21 @@ export function useGame(s: Settings) {
       if (existing) {
         setState((st) => ({ ...st, path: [...st.path, existing.id] }));
       } else {
+        if (pathNodes.length > MAX_TREE_DEPTH || nodeMap.size >= MAX_TREE_NODES) {
+          flashHint(
+            `Лимит: ${MAX_TREE_DEPTH} полуходов в линии, ${MAX_TREE_NODES - 1} ходов в дереве`,
+          );
+          return false;
+        }
         const child = createNode(m, curNode);
         curNode.children.push(child); /* первый ребёнок — линия, следующие — варианты */
         setState((st) => ({ ...st, path: [...st.path, child.id] }));
+        setStructureTick((t) => t + 1);
         bump();
       }
       return true;
     },
-    [legal, curNode],
+    [legal, curNode, pathNodes.length, nodeMap, flashHint, recovery],
   );
 
   /* ---------- комментарии и NAG ---------- */
@@ -492,8 +551,7 @@ export function useGame(s: Settings) {
           setSelected(null);
           return;
         }
-        const m = findMove(legal, selected, n);
-        if (m) {
+        if (legal.some((m) => m.from === selected && m.to === n)) {
           playFromTo(selected, n);
           return;
         }
@@ -531,6 +589,7 @@ export function useGame(s: Settings) {
 
   /* ---------- новая партия / расстановка / загрузка ---------- */
   const newGame = useCallback(() => {
+    setRecovery(null);
     setSelected(null);
     setAuto(false);
     const r = rootTree();
@@ -545,6 +604,7 @@ export function useGame(s: Settings) {
   }, []);
 
   const applySetup = useCallback((p: Pos, keepHeaders = false) => {
+    setRecovery(null);
     setSelected(null);
     setAuto(false);
     const r = rootTree();
@@ -574,6 +634,7 @@ export function useGame(s: Settings) {
     const g = parsePDNFull(text);
     if (g.error) return g.error;
     if (g.movesParsed === 0 && !g.headers.FEN) return 'Не найдено ходов в PDN';
+    setRecovery(null);
     setSelected(null);
     setAuto(false);
     const r = g.root;
@@ -598,11 +659,13 @@ export function useGame(s: Settings) {
 
   /* ---------- база партий (IndexedDB) ---------- */
   const [dbGames, setDbGames] = useState<DbGame[]>([]);
+  const [dbError, setDbError] = useState<string | null>(null);
   const refreshDb = useCallback(async () => {
     try {
       setDbGames(await listGames());
+      setDbError(null);
     } catch {
-      /* noop */
+      setDbError('Не удалось прочитать базу партий');
     }
   }, []);
   useEffect(() => {
@@ -641,6 +704,7 @@ export function useGame(s: Settings) {
         await refreshDb();
         return true;
       } catch {
+        setDbError('Не удалось сохранить партию в базу');
         return false;
       }
     },
@@ -652,6 +716,7 @@ export function useGame(s: Settings) {
     if (!r) return 'Не удалось прочитать партию из базы';
     const start = parseFen(g.startFen);
     if (!start || !validateTree(start, r)) return 'Повреждённые позиции или ходы в базе';
+    setRecovery(null);
     setSelected(null);
     setAuto(false);
     let end: TreeNode = r;
@@ -675,7 +740,7 @@ export function useGame(s: Settings) {
         await deleteGame(id);
         await refreshDb();
       } catch {
-        /* noop */
+        setDbError('Не удалось удалить партию из базы');
       }
     },
     [refreshDb],
@@ -719,7 +784,9 @@ export function useGame(s: Settings) {
     startFen,
     headers,
     result,
-    setResult: (r: string) => setState((st) => ({ ...st, result: r })),
+    setResult: (r: string) => {
+      if (['*', '1-0', '0-1', '1-1'].includes(r)) setState((st) => ({ ...st, result: r }));
+    },
     loadFenText,
     loadPDNText,
     exportPDN,
@@ -728,6 +795,10 @@ export function useGame(s: Settings) {
     engine: engineState,
     engineKind,
     scanAvail,
+    retryAnalysis: () => setAnalysisRevision((n) => n + 1),
+    recovery,
+    storageError,
+    dbError,
     tb,
     hint,
     dbGames,
