@@ -92,11 +92,11 @@ function support(b: Int8Array, r: number, c: number, side: 1 | -1): number {
 /* Оценка "большого треугольника" — ключевые поля для атаки */
 function bigTriangle(n: number, side: 1 | -1): number {
   /* Для белых: 5, 9, 10 (верхний треугольник) */
-  /* Для чёрных: 41, 45, 46 (нижний треугольник) */
+  /* Для чёрных: 41, 42, 46 (зеркало 10, 9, 5) */
   if (side === 1) {
     if (n === 5 || n === 9 || n === 10) return 8;
   } else {
-    if (n === 41 || n === 45 || n === 46) return 8;
+    if (n === 41 || n === 42 || n === 46) return 8;
   }
   return 0;
 }

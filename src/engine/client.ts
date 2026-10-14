@@ -30,10 +30,9 @@ export class EngineClient {
       timer: ReturnType<typeof setTimeout>;
     }
   >();
-  constructor() {
-    this.startWorker();
-  }
+  private workerAttempted = false;
   private startWorker(): void {
+    this.workerAttempted = true;
     try {
       this.worker = new Worker(new URL('./impl.ts', import.meta.url), { type: 'module' });
       const worker = this.worker;
@@ -68,6 +67,7 @@ export class EngineClient {
   analyze(req: AnalyzeReq, onInfo?: (i: InfoMsg) => void): AnalyzeHandle {
     // One active search per client. Replacing it settles and actually stops the previous one.
     if (this.pending.size) this.reset();
+    if (!this.workerAttempted) this.startWorker();
     const id = ++this.seq,
       msg: GoMsg = { t: 'go', id, ...req };
     const promise = new Promise<EngineResult | null>((resolve) => {
@@ -110,9 +110,10 @@ export class EngineClient {
     this.worker = null;
     this.directMod?.stopDirect();
     this.finishAll();
-    this.startWorker();
+    this.workerAttempted = false;
   }
   dispose(): void {
+    this.workerAttempted = false;
     this.worker?.terminate();
     this.worker = null;
     this.directMod?.stopDirect();

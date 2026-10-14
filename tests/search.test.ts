@@ -1,5 +1,5 @@
 import { it, expect, beforeEach } from 'vitest';
-import { analyze, clearSearch } from '../src/engine/search';
+import { analyze, clearSearch, evaluate } from '../src/engine/search';
 import { applyMove, generateMoves, parseFen, moveKey } from '../src/engine/core';
 import { materialInfo, materialVerdict } from '../src/engine/tablebase';
 beforeEach(clearSearch);
@@ -96,4 +96,14 @@ it('warm transposition bounds agree with a fresh complete search', async () => {
     candidates: r.candidates.map((c) => [moveKey(c.move), c.score]),
   });
   expect(signature(warm)).toEqual(signature(cold));
+});
+
+it('mirrors the evaluation after rotating the board and exchanging colours', () => {
+  for (let white = 1; white <= 50; white++) {
+    const black = white === 30 ? 31 : 30;
+    const board = parseFen(`W:W${white}:B${black}`)!.b;
+    const mirrored = new Int8Array(51);
+    for (let n = 1; n <= 50; n++) mirrored[51 - n] = -board[n];
+    expect(evaluate(mirrored) + evaluate(board)).toBe(0);
+  }
 });

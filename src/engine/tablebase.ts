@@ -3,9 +3,8 @@
  * ============================================================ */
 
 export interface TbVerdict {
-  /** 1 — выигрыш белых, 0 — ничья, -1 — выигрыш чёрных */
-  result: 1 | 0 | -1;
-  confidence: 'practice';
+  /** Sign of the material advantage; not a solved game result. */
+  result: 1 | -1;
   note: string;
 }
 
@@ -38,7 +37,6 @@ export function materialVerdict(m: Material): TbVerdict | null {
   if (Math.abs(diff) < 1) return null;
   return {
     result: diff > 0 ? 1 : -1,
-    confidence: 'practice',
     note: 'Материальный перевес. Исход зависит от расположения фигур и очереди хода; база окончаний не подключена.',
   };
 }

@@ -11,10 +11,10 @@ import {
   type ReactNode, type SVGProps,
 } from 'react';
 import {
-  type Move, type Pos, type Side, WHITE, rc, sq, tempi,
+  type Move, type Pos, type Side, WHITE, rc, sq, tempi, parseFen, boardToFen, moveNotation,
 } from './engine/core';
 import { materialInfo } from './engine/tablebase';
-import { SAMPLE_PDN } from './engine/pdn';
+import { SAMPLE_PDN, splitGames, parsePDNFull } from './engine/pdn';
 import { loadSettings, saveSettings, type Settings } from './state/settings';
 import { useGame, type GameApi, type CandidateLite } from './state/useGame';
 import { NAG_SYMBOLS, nodeSan, type TreeNode } from './state/tree';
@@ -90,9 +90,9 @@ function Dot({ color, pulse }: { color: string; pulse?: boolean }) {
   );
 }
 
-function Toggle({ on, onChange, label, hint }: { on: boolean; onChange: (v: boolean) => void; label: string; hint?: string }) {
+function Toggle({ on, onChange, label, hint, disabled = false }: { on: boolean; onChange: (v: boolean) => void; label: string; hint?: string; disabled?: boolean }) {
   return (
-    <button type="button" onClick={() => onChange(!on)} className="flex w-full items-center gap-3 py-1 text-left">
+    <button type="button" disabled={disabled} aria-pressed={on} onClick={() => onChange(!on)} className="flex w-full items-center gap-3 py-1 text-left disabled:opacity-50">
       <span className="min-w-0 flex-1">
         <span className="block text-xs font-semibold text-body">{label}</span>
         {hint && <span className="block text-[10px] leading-tight text-dim">{hint}</span>}
@@ -218,16 +218,14 @@ function SettingsPanel({ s, set, game, onClose }: {
             />
           )}
           <Toggle on={s.autoSingle} onChange={(v) => set({ autoSingle: v })} label="Авто-ход" hint="клик по шашке с единственным ходом — сразу ходит" />
-          <Toggle on={s.humanStyle} onChange={(v) => set({ humanStyle: v })} label="Человеческий стиль" hint="среди равных ходов выбирать типичные для игроков" />
+          <Toggle on={s.humanStyle} disabled={s.useScan} onChange={(v) => set({ humanStyle: v })} label="Человеческий стиль" hint={s.useScan ? "Доступен со встроенным движком; отключите Scan" : "среди равных ходов выбирать типичные для игроков"} />
         </div>
         <div className="py-2">
           <div className="mb-1 font-display text-[9px] font-bold tracking-[.22em] text-dim">ДВИЖОК</div>
           <Toggle
             on={s.useScan} onChange={(v) => set({ useScan: v })}
             label="Scan 3.1 (WASM)"
-            hint={game.scanAvail
-              ? 'модуль найден — приоритет над встроенным движком'
-              : 'бинарник не найден (public/scan/) — работает встроенный движок'}
+            hint={!s.useScan ? 'отключён — модуль загрузится при включении' : game.scanAvail === null ? 'модуль загружается при первом анализе' : game.scanAvail ? 'модуль готов — приоритет над встроенным движком' : 'Scan недоступен — работает встроенный движок'}
           />
           <SliderRow label="Глубина анализа" value={s.engineDepth} min={4} max={14} step={1}
             fmt={(v) => `${v} п/х`} onChange={(v) => set({ engineDepth: v })} />
@@ -534,10 +532,8 @@ function TbBlock({ tb, b }: { tb: NonNullable<GameApi['tb']>; b: Int8Array }) {
   const m = materialInfo(b);
   const label = tb.result === 1 ? 'Материал в пользу белых' : 'Материал в пользу чёрных';
   const conf = 'приблизительно';
-  const tone = tb.result === 0
-    ? 'border-white/15 bg-white/[.05]'
-    : tb.result === 1 ? 'border-[#5fb287]/45 bg-[#5fb287]/10' : 'border-[#d9534a]/45 bg-[#d9534a]/10';
-  const toneText = tb.result === 0 ? 'text-body' : tb.result === 1 ? 'text-[#8ed0ae]' : 'text-[#e5938b]';
+  const tone = tb.result === 1 ? 'border-[#5fb287]/45 bg-[#5fb287]/10' : 'border-[#d9534a]/45 bg-[#d9534a]/10';
+  const toneText = tb.result === 1 ? 'text-[#8ed0ae]' : 'text-[#e5938b]';
   return (
     <div className={`mt-3 rounded-lg border px-3 py-2.5 ${tone}`}>
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
@@ -614,11 +610,6 @@ function AnalysisPanel({
 
       {thinking && <div className="shimmer mt-2 h-0.5 w-full overflow-hidden rounded-full opacity-70" />}
 
-      {game.routeChoices.length > 0 && <div className="mt-3 rounded-lg border border-acc/40 p-3">
-        <p className="text-xs">Выберите маршрут взятия:</p>
-        {game.routeChoices.map((move, index) => <button key={index} type="button" className="mt-2 block text-acc2" onClick={() => game.chooseRoute(move)}>{[move.from, ...move.path].join(' × ')} (сняты: {move.captures.join(', ')})</button>)}
-        <button type="button" onClick={game.cancelRoute} className="mt-2 text-xs text-mut">Отмена</button>
-      </div>}
       {tb && <TbBlock tb={tb} b={pos.b} />}
 
       {engine.best && !stale ? (
@@ -629,7 +620,7 @@ function AnalysisPanel({
           <span>
             <span className="block text-[9px] font-semibold uppercase tracking-[.18em] text-acc">Лучший ход</span>
             <span className="font-mono text-xl font-bold text-acc2 sm:text-2xl">
-              {engine.best.from}{engine.candidates.find((c) => c.from === engine.best!.from && c.to === engine.best!.to)?.caps ? 'x' : '–'}{engine.best.to}
+              {moveNotation(engine.best)}
             </span>
           </span>
           <span className="rounded-lg border border-acc/50 px-3 py-2 text-xs font-semibold text-acc2 group-hover:bg-acc/20">
@@ -638,8 +629,9 @@ function AnalysisPanel({
         </button>
       ) : (
         <div className="mt-3 flex items-center gap-3 rounded-lg border border-white/8 bg-white/[.03] px-4 py-3">
-          <span className="spinner" />
-          <span className="text-xs text-mut">{game.draw ? 'Ничья' : game.winner ? 'Партия завершена' : engine.error ? engine.error : stale ? 'позиция изменилась — пересчёт…' : 'движок ищет лучший ход…'}</span>
+          <span className={thinking ? "spinner" : "text-mut"}>{thinking ? null : <IWarn size={16} />}</span>
+          <span className="text-xs text-mut">{game.draw ? 'Ничья' : game.winner ? 'Партия завершена' : engine.error ? engine.error : thinking ? (stale ? 'позиция изменилась — пересчёт…' : 'движок ищет лучший ход…') : 'Нет результата анализа'}</span>
+          {!thinking && !game.draw && !game.winner && <TBtn onClick={game.retryAnalysis} title="Повторить анализ">Повторить</TBtn>}
         </div>
       )}
 
@@ -725,8 +717,7 @@ function MovesLine({
   let cur: TreeNode | null = node;
   let n = num;
   let black = blackNext;
-  let guard = 0;
-  while (cur && guard++ < 500) {
+  while (cur) {
     const label = black ? `${n}…` : `${n}.`;
     elements.push(
       <span key={cur.id} className="inline-flex items-center gap-1">
@@ -735,11 +726,12 @@ function MovesLine({
       </span>,
     );
     /* варианты — альтернативы этому ходу */
-    for (let i = 1; i < cur.children.length; i++) {
+    const variants: TreeNode[] = cur.parent?.children[0] === cur ? cur.parent.children.slice(1) : [];
+    for (const variant of variants) {
       elements.push(
-        <span key={`v${cur.children[i].id}`} className={`var-wrap ${depth > 0 ? 'var-deep' : ''}`}>
+        <span key={`v${variant.id}`} className={`var-wrap ${depth > 0 ? 'var-deep' : ''}`}>
           <span className="var-paren">(</span>
-          <MovesLine node={cur.children[i]} num={n} blackNext={black} curId={curId} onGoto={onGoto} depth={depth + 1} />
+          <MovesLine node={variant} num={n} blackNext={black} curId={curId} onGoto={onGoto} depth={depth + 1} />
           <span className="var-paren">)</span>
         </span>,
       );
@@ -757,6 +749,7 @@ function MovesLine({
 function MovesTab({ game }: { game: GameApi }) {
   const { root, curNode, path, gotoNode, setComment, toggleNag, movesTotal } = game;
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
   const ply = path.length - 1;
 
   const download = () => {
@@ -770,8 +763,9 @@ function MovesTab({ game }: { game: GameApi }) {
     try {
       await navigator.clipboard.writeText(game.exportPDN());
       setCopied(true);
+      setCopyError(false);
       window.setTimeout(() => setCopied(false), 1500);
-    } catch { /* noop */ }
+    } catch { setCopyError(true); }
   };
 
   return (
@@ -788,6 +782,13 @@ function MovesTab({ game }: { game: GameApi }) {
         </div>
       </div>
 
+      {copyError && <p role="alert" className="mt-2 text-xs text-[#e5938b]">Не удалось скопировать PDN. Используйте скачивание файла.</p>}
+      <label className="mt-2 flex items-center gap-2 text-xs text-mut">
+        Результат партии
+        <select aria-label="Результат партии" value={game.result} onChange={(e) => game.setResult(e.target.value)} className="rounded border border-white/10 bg-pan px-2 py-1 text-body">
+          <option value="*">Не завершена</option><option value="1-0">Белые выиграли</option><option value="0-1">Чёрные выиграли</option><option value="1-1">Ничья</option>
+        </select>
+      </label>
       <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-white/10 p-2.5 scroll-slim sm:max-h-64">
         {root.children.length === 0 ? (
           <div className="px-2 py-4 text-center text-xs text-dim">
@@ -865,6 +866,27 @@ function DbTab({ game }: { game: GameApi }) {
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [pdnInput, setPdnInput] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const [importChoices, setImportChoices] = useState<{ text: string; label: string }[]>([]);
+  const importText = (text: string) => {
+    setImportChoices([]);
+    const blocks = splitGames(text);
+    const choices: { text: string; label: string }[] = [];
+    for (const [index, block] of blocks.entries()) {
+      const parsed = parsePDNFull(block);
+      if (parsed.error || (!parsed.movesParsed && !parsed.headers.FEN)) {
+        setMsg({ kind: 'err', text: `Партия ${index + 1}: ${parsed.error ?? 'Не найдено ходов в PDN'}` });
+        return;
+      }
+      choices.push({ text: block, label: `${index + 1}. ${parsed.headers.White ?? 'Белые'} — ${parsed.headers.Black ?? 'Чёрные'} · ${parsed.headers.Event ?? 'Без названия'}` });
+    }
+    if (choices.length > 1) {
+      setImportChoices(choices);
+      setMsg({ kind: 'ok', text: `Найдено партий: ${choices.length}. Выберите партию для разбора; каждую можно сохранить в базу.` });
+      return;
+    }
+    const err = loadPDNText(text);
+    setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: 'Партия импортирована' });
+  };
 
   const resultTone = (r: string) =>
     r === '1-0' ? 'text-ink' : r === '0-1' ? 'text-mut' : r === '1-1' ? 'text-[#8ed0ae]' : 'text-dim';
@@ -879,6 +901,7 @@ function DbTab({ game }: { game: GameApi }) {
         </div>
       )}
 
+      {game.dbError && <p role="alert" className="text-xs text-[#e5938b]">{game.dbError}</p>}
       <section className="panel p-3.5 sm:p-4">
         <header className="mb-2 flex items-center justify-between">
           <h2 className="font-display text-[10px] font-bold tracking-[.22em] text-mut">БАЗА ПАРТИЙ · INDEXEDDB</h2>
@@ -947,6 +970,12 @@ function DbTab({ game }: { game: GameApi }) {
           placeholder={'Вставьте PDN (можно несколько партий подряд):\n1.32-28 {комментарий} 19-23 (1... 17-22) 2.28x19 ...'}
           className="w-full resize-y rounded-lg border border-white/10 bg-black/25 px-3 py-2.5 font-mono text-xs leading-relaxed text-ink outline-none transition-colors placeholder:text-dim focus:border-acc/60 scroll-slim"
         />
+        {importChoices.length > 0 && <div aria-label="Партии из PDN" className="mt-2 flex max-h-64 flex-col gap-2 overflow-y-auto">
+          {importChoices.map((choice, index) => <TBtn key={index} onClick={() => {
+            const err = loadPDNText(choice.text);
+            setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: `Загружена партия ${index + 1}` });
+          }}>{choice.label}</TBtn>)}
+        </div>}
         <input
           ref={fileRef} type="file" accept=".pdn,.txt,text/plain" className="hidden"
           onChange={(e) => {
@@ -956,16 +985,16 @@ function DbTab({ game }: { game: GameApi }) {
             rd.onload = () => {
               const text = String(rd.result ?? '');
               setPdnInput(text);
-              const err = loadPDNText(text);
-              setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: 'Партия импортирована' });
+              importText(text);
             };
+            rd.onerror = () => setMsg({ kind: 'err', text: 'Не удалось прочитать файл PDN' });
             rd.readAsText(f);
+            e.target.value = '';
           }}
         />
         <div className="mt-2 flex flex-wrap gap-1.5">
           <TBtn accent onClick={() => {
-            const err = loadPDNText(pdnInput);
-            setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: 'Партия импортирована' });
+            importText(pdnInput);
           }}>
             <ILoad size={15} /><span className="text-xs font-semibold">Импортировать</span>
           </TBtn>
@@ -973,6 +1002,7 @@ function DbTab({ game }: { game: GameApi }) {
             <IBook size={15} /><span className="text-xs">Файл .pdn</span>
           </TBtn>
           <TBtn onClick={() => {
+            setImportChoices([]);
             setPdnInput(SAMPLE_PDN);
             const err = loadPDNText(SAMPLE_PDN);
             setMsg(err ? { kind: 'err', text: err } : { kind: 'ok', text: 'Пример с вариантом и комментарием загружен' });
@@ -994,21 +1024,7 @@ function SetupTab({ game }: { game: GameApi }) {
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const curFen = useMemo(() => {
-    let W: string[] = []; let B: string[] = [];
-    let wRun: number[] = []; let bRun: number[] = [];
-    const flushW = () => { if (wRun.length) { W.push(`${wRun[0]}-${wRun[wRun.length - 1]}`); wRun = []; } };
-    const flushB = () => { if (bRun.length) { B.push(`${bRun[0]}-${bRun[bRun.length - 1]}`); bRun = []; } };
-    for (let n = 1; n <= 50; n++) {
-      const v = board[n];
-      if (v === 1) { flushW(); wRun.push(n); }
-      else if (v === 2) { flushW(); W.push(`K${n}`); }
-      else if (v === -1) { flushB(); bRun.push(n); }
-      else if (v === -2) { flushB(); B.push(`K${n}`); }
-    }
-    flushW(); flushB();
-    return `${side === WHITE ? 'W' : 'B'}:W${W.join(',')}:B${B.join(',')}`;
-  }, [board, side]);
+  const curFen = useMemo(() => boardToFen(board, side), [board, side]);
 
   const cycle = (n: number) => {
     setBoard((b) => {
@@ -1031,26 +1047,10 @@ function SetupTab({ game }: { game: GameApi }) {
     setMsg({ kind: 'ok', text: 'Расстановка применена — партия начата с этой позиции' });
   };
   const loadFenInto = () => {
-    const parts = fenInput.trim().split(':');
-    if (parts.length !== 3) { setMsg({ kind: 'err', text: 'FEN должен иметь вид W:W…:B…' }); return; }
-    const b = new Int8Array(51);
-    const fill = (part: string, sgn: 1 | -1): boolean => {
-      const s = part.replace(/^[WB]/i, '');
-      if (!s) return true;
-      for (const tok of s.split(',')) {
-        const t = tok.trim();
-        if (!t) continue;
-        const king = /^K/i.test(t);
-        const nums = t.replace(/^K/i, '').split('-').map(Number);
-        if (nums.some((x) => !Number.isInteger(x) || x < 1 || x > 50)) return false;
-        const [a, z] = nums.length === 1 ? [nums[0], nums[0]] : nums;
-        for (let n = a; n <= z; n++) b[n] = sgn * (king ? 2 : 1);
-      }
-      return true;
-    };
-    if (!fill(parts[1], 1) || !fill(parts[2], -1)) { setMsg({ kind: 'err', text: 'Не удалось разобрать FEN' }); return; }
-    setBoard(b);
-    setSide(parts[0].toUpperCase() === 'B' ? -1 as Side : WHITE);
+    const parsed = parseFen(fenInput);
+    if (!parsed) { setMsg({ kind: 'err', text: 'Не удалось разобрать FEN — проверьте формат (W:W…:B…)' }); return; }
+    setBoard(parsed.b);
+    setSide(parsed.side);
     setMsg({ kind: 'ok', text: 'FEN загружен в расстановку — нажмите «Применить»' });
   };
 
@@ -1118,10 +1118,10 @@ function SetupTab({ game }: { game: GameApi }) {
           <input value={curFen} readOnly spellCheck={false}
             className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/25 px-3 py-2.5 font-mono text-xs text-body outline-none" />
           <TBtn title="Копировать FEN" onClick={() => {
-            void navigator.clipboard.writeText(curFen).then(() => {
+            void Promise.resolve().then(() => navigator.clipboard.writeText(curFen)).then(() => {
               setCopied(true);
               window.setTimeout(() => setCopied(false), 1500);
-            }).catch(() => undefined);
+            }).catch(() => setMsg({ kind: 'err', text: 'Не удалось скопировать FEN' }));
           }} className="shrink-0">
             {copied ? <ICheck size={15} /> : <ICopy size={15} />}
           </TBtn>
@@ -1218,7 +1218,7 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
       const gg = gameRef.current;
       if (e.key === 'ArrowLeft') { e.preventDefault(); gg.prev(); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); gg.next(); }
@@ -1231,11 +1231,6 @@ export default function App() {
 
   const engineReady = g.engine.forKey === g.boardKey;
   const best = engineReady && s.showArrows ? g.engine.best : null;
-  const bestFull = useMemo(
-    () => (best ? best : null),
-    [best, g.legal],
-  );
-
   const handleHover = (c: CandidateLite | null) => {
     if (!c || !s.showArrows) { setPreview(null); return; }
     setPreview(c);
@@ -1277,13 +1272,22 @@ export default function App() {
         </div>
       </header>
 
+      {(g.recovery || g.storageError) && <div role="alert" className="mx-auto max-w-[1120px] px-3 pt-3 text-xs text-[#e5938b]">
+        {g.recovery ? <div>Не удалось восстановить сохранённую партию. Исходные данные защищены от перезаписи.
+          <TBtn onClick={() => {
+            const url = URL.createObjectURL(new Blob([g.recovery!], { type: 'application/json' }));
+            const a = document.createElement('a'); a.href = url; a.download = 'partiya-recovery.json'; a.click(); URL.revokeObjectURL(url);
+          }}>Скачать исходное сохранение</TBtn>
+          <TBtn onClick={g.newGame}>Начать новую партию</TBtn>
+        </div> : g.storageError}
+      </div>}
       <main className="app-grid mx-auto max-w-[1120px] px-3 py-4">
         <div className="min-w-0">
           <div className="board-shell relative mx-auto max-w-[560px]">
             <BoardGlow pos={g.pos} />
             <BoardView
               pos={g.pos} legal={g.legal} selected={g.selected} lastMove={g.lastMove}
-              best={bestFull} preview={preview} flipped={g.flipped} showNums={g.showNums}
+              best={best} preview={preview} flipped={g.flipped} showNums={g.showNums}
               winner={g.winner} onSquare={g.clickSquare}
             />
           </div>
@@ -1305,6 +1309,11 @@ export default function App() {
               </span>
             </div>
 
+            {g.routeChoices.length > 0 && <div className="mt-3 rounded-lg border border-acc/40 p-3">
+        <p className="text-xs">Выберите маршрут взятия:</p>
+              {g.routeChoices.map((move, index) => <button key={index} type="button" className="mt-2 block text-acc2" onClick={() => g.chooseRoute(move)}>{[move.from, ...move.path].join(' × ')} (сняты: {move.captures.join(', ')})</button>)}
+        <button type="button" onClick={g.cancelRoute} className="mt-2 text-xs text-mut">Отмена</button>
+      </div>}
             {g.mustCapture && g.winner === null && (
               <div className="dest-pulse mt-2 flex items-center gap-1.5 rounded-lg border border-[#d9534a]/50 bg-[#d9534a]/12 px-3 py-1.5 text-[11px] font-bold tracking-wide text-[#e58a82]">
                 <IWarn size={13} />ВЗЯТИЕ ОБЯЗАТЕЛЬНО{s.autoCapture ? ' · АВТО' : ''}

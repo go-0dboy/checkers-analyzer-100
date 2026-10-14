@@ -25,6 +25,10 @@ export interface TreeNode {
   parent: TreeNode | null;
 }
 
+// Shared by import, storage and the interactive editor.
+export const MAX_TREE_DEPTH = 500;
+export const MAX_TREE_NODES = 10000;
+
 export const NAG_SYMBOLS: Record<number, string> = {
   1: '!',
   2: '?',
@@ -51,10 +55,10 @@ export function pathTo(node: TreeNode): TreeNode[] {
   const arr: TreeNode[] = [];
   let cur: TreeNode | null = node;
   while (cur) {
-    arr.unshift(cur);
+    arr.push(cur);
     cur = cur.parent;
   }
-  return arr;
+  return arr.reverse();
 }
 
 /** Нотация хода узла: 32-28 / 28x19 + символы NAG. */
@@ -65,9 +69,14 @@ export function nodeSan(n: TreeNode): string {
 }
 
 /** Позиции вдоль пути: [start, pos1, ...] (по числу узлов в пути). */
-export function pathPositions(start: Pos, path: TreeNode[]): Pos[] {
+export function pathPositions(start: Pos, path: TreeNode[], cache?: WeakMap<TreeNode, Pos>): Pos[] {
   const res: Pos[] = [start];
   for (let i = 1; i < path.length; i++) {
+    const cached = cache?.get(path[i]);
+    if (cached) {
+      res.push(cached);
+      continue;
+    }
     const mv = path[i].move;
     if (!mv) {
       res.push(res[res.length - 1]);
@@ -77,7 +86,9 @@ export function pathPositions(start: Pos, path: TreeNode[]): Pos[] {
     const legal = generateMoves(cur);
     const found = legal.find((l) => sameMove(l, mv));
     if (!found) throw new Error(`Нелегальный ход в дереве: ${moveNotation(mv)}`);
-    res.push(applyMove(cur, found));
+    const after = applyMove(cur, found);
+    cache?.set(path[i], after);
+    res.push(after);
   }
   return res;
 }
@@ -123,8 +134,8 @@ export function deserializeTree(json: string): TreeNode | null {
       if (
         !d ||
         typeof d !== 'object' ||
-        depth > 500 ||
-        ++count > 10000 ||
+        depth > MAX_TREE_DEPTH ||
+        ++count > MAX_TREE_NODES ||
         !Array.isArray(d.children) ||
         (parent ? !isMove(d.move) : d.move !== null) ||
         (d.comment !== undefined && typeof d.comment !== 'string') ||
