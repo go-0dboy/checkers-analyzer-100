@@ -69,3 +69,51 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+
+it('ignores late errors from a disposed Worker and forwards depth limits', async () => {
+  class Worker {
+    static all: Worker[] = [];
+    onmessage: ((event: { data: unknown }) => void) | null = null;
+    onerror: (() => void) | null = null;
+    messages: Record<string, unknown>[] = [];
+    constructor() {
+      Worker.all.push(this);
+    }
+    postMessage(m: Record<string, unknown>) {
+      this.messages.push(m);
+      if (m.t === 'boot') queueMicrotask(() => this.onmessage?.({ data: { t: 'ready' } }));
+    }
+    terminate() {}
+  }
+  vi.stubGlobal('Worker', Worker);
+  const scan = new ScanSession('https://example.test/scan.js', 'pattern');
+  await scan.boot();
+  const old = Worker.all[0];
+  scan.dispose();
+  await scan.boot();
+  const pending = scan.analyze('W:WK23:BK28', 100, undefined, [], 'W:WK23:BK28', 3);
+  await Promise.resolve();
+  old.onerror?.();
+  const worker = Worker.all[1];
+  expect(worker.messages.at(-1)).toMatchObject({ t: 'go', maxDepth: 3 });
+  worker.onmessage?.({ data: { t: 'done', id: 1, result: { depth: 3 } } });
+  expect(await pending).toMatchObject({ depth: 3 });
+  scan.dispose();
+});
+
+it('settles a search if posting to the Worker fails', async () => {
+  vi.stubGlobal(
+    'Worker',
+    class {
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      postMessage(m: { t: string }) {
+        if (m.t === 'boot') queueMicrotask(() => this.onmessage?.({ data: { t: 'ready' } }));
+        else throw new Error('postMessage failed');
+      }
+      terminate() {}
+    },
+  );
+  const scan = new ScanSession('https://example.test/scan.js', 'pattern');
+  expect(await scan.analyze('W:WK23:BK28', 100)).toBeNull();
+  scan.dispose();
+});

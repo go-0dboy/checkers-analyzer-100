@@ -1,9 +1,8 @@
-/** Worker implementation: full move identities, history-aware search and leaf NN evaluation. */
-import { generateMoves, parseFen, applyMove, findMove, type Move, type Pos } from './core';
-import { analyze, clearSearch, evaluate } from './search';
+/** Worker implementation: full move identities, history-aware search. */
+import { generateMoves, parseFen, applyMove, findMove, type Move } from './core';
+import { analyze } from './search';
 import { bookLookup, START_FEN } from './book';
 import { initialDraw, advanceDraw, drawReason } from './draw';
-import { NNUE, FEATURES } from './nn';
 export interface GoMsg {
   t: 'go';
   id: number;
@@ -13,8 +12,6 @@ export interface GoMsg {
   timeMs: number;
   maxDepth: number;
   humanStyle?: boolean;
-  nnEnabled?: boolean;
-  nnBlend?: number;
 }
 export interface EngineResult {
   t: 'done';
@@ -32,13 +29,7 @@ export interface EngineResult {
   draw?: string;
   error?: string;
 }
-let net: NNUE | null = null;
 let activeToken: { cancelled: boolean } | null = null;
-export function loadNetDirect(json: string | null): void {
-  net = json ? NNUE.deserialize(json) : null;
-  clearSearch();
-}
-let evalMode = '';
 async function runEngine(msg: GoMsg, post: (m: unknown) => void): Promise<void> {
   const t0 = performance.now();
   const empty: EngineResult = {
@@ -96,20 +87,6 @@ async function runEngine(msg: GoMsg, post: (m: unknown) => void): Promise<void> 
     }
     const token = { cancelled: false };
     activeToken = token;
-    const weight = net && msg.nnEnabled ? Math.min(0.8, Math.max(0, msg.nnBlend ?? 0)) : 0;
-    const mode = `${!!net}/${weight}`;
-    if (mode !== evalMode) {
-      clearSearch();
-      evalMode = mode;
-    }
-    const features = new Float32Array(FEATURES);
-    const leafEval = (pos: Pos) => {
-      const b = pos.b;
-      const hce = evaluate(b);
-      if (!net || !weight) return hce;
-      net.features(b, features, pos.side);
-      return Math.round((1 - weight) * hce + weight * (net.forward(features) - 0.5) * 500);
-    };
     const result = await analyze(
       pos,
       {
@@ -117,7 +94,6 @@ async function runEngine(msg: GoMsg, post: (m: unknown) => void): Promise<void> 
         maxDepth: msg.maxDepth,
         humanStyle: msg.humanStyle,
         draw,
-        evaluate: leafEval,
       },
       (info) => post({ t: 'info', id: msg.id, ...info }),
       token,
@@ -154,11 +130,7 @@ const scope =
       });
 if (typeof document === 'undefined' && scope && typeof scope.postMessage === 'function') {
   scope.onmessage = (e: MessageEvent) => {
-    const d = e.data as GoMsg | { t: 'stop' } | { t: 'loadNet'; net: string | null };
-    if (d.t === 'loadNet') {
-      loadNetDirect(d.net);
-      return;
-    }
+    const d = e.data as GoMsg | { t: 'stop' };
     if (activeToken) activeToken.cancelled = true;
     if (d.t === 'go') void runEngine(d, (m) => scope.postMessage(m));
   };

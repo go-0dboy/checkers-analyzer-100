@@ -1,7 +1,7 @@
 /* ============================================================
  * useGame — состояние разбора: дерево ходов с ветвлениями,
  * комментарии и NAG, навигация, анализ (Scan WASM → встроенный
- * движок), нейросеть, авто-взятие/авто-ход, IndexedDB, сохранение.
+ * движок), авто-взятие/авто-ход, IndexedDB, сохранение.
  * ============================================================ */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -22,7 +22,6 @@ import { engine, type AnalyzeHandle } from '../engine/client';
 import { getScan, type ScanEngine } from '../engine/scan';
 import { materialInfo, materialVerdict, type TbVerdict } from '../engine/tablebase';
 import { parsePDNFull, toPDNFull } from '../engine/pdn';
-import { type NetMeta } from '../engine/nn';
 import type { Settings } from './settings';
 import {
   createNode,
@@ -76,16 +75,7 @@ const IDLE: EngineState = {
   book: null,
 };
 
-export interface TrainResult {
-  ok: boolean;
-  error?: string;
-  games?: number;
-  positions?: number;
-  loss?: number;
-}
-
 const GAME_KEY = 'sk100.game.v4';
-const NET_KEY = 'sk100.net.v3';
 
 interface GameState {
   start: Pos;
@@ -204,41 +194,6 @@ export function useGame(s: Settings) {
     setRouteChoices([]);
   }, [boardKey]);
 
-  /* ---------- нейросеть ---------- */
-  const [nnMeta, setNnMeta] = useState<NetMeta | null>(() => {
-    try {
-      const raw = localStorage.getItem(NET_KEY);
-      if (raw) {
-        const d = JSON.parse(raw) as { meta?: NetMeta };
-        if (d.meta?.v === 3 && Number.isFinite(d.meta.loss)) return d.meta;
-      }
-    } catch {
-      /* noop */
-    }
-    return null;
-  });
-  const [training, setTraining] = useState(false);
-  const [trainProg, setTrainProg] = useState<{
-    epoch: number;
-    loss: number;
-    valLoss: number;
-    stopped?: boolean;
-  } | null>(null);
-  const trainWorker = useRef<Worker | null>(null);
-  const trainFinish = useRef<((r: TrainResult) => void) | null>(null);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(NET_KEY);
-      if (raw) {
-        const d = JSON.parse(raw) as { json?: string };
-        if (d.json) engine.setNet(d.json);
-      }
-    } catch {
-      /* noop */
-    }
-  }, []);
-
   /* ---------- Scan WASM ---------- */
   useEffect(() => {
     let on = true;
@@ -277,7 +232,14 @@ export function useGame(s: Settings) {
         scanRef.current = scan;
         if (scan && genRef.current === gen) {
           const t0 = performance.now();
-          const r = await scan.analyze(fen, s.engineTime, scanAbort.signal, history, startFen);
+          const r = await scan.analyze(
+            fen,
+            s.engineTime,
+            scanAbort.signal,
+            history,
+            startFen,
+            s.engineDepth,
+          );
           if (genRef.current !== gen) return;
           if (r && findMove(legal, r.move.from, r.move.to, r.move.path, r.move.captures)) {
             const ms = Math.max(1, Math.round(performance.now() - t0));
@@ -317,8 +279,6 @@ export function useGame(s: Settings) {
           timeMs: s.engineTime,
           maxDepth: s.engineDepth,
           humanStyle: s.humanStyle,
-          nnEnabled: s.nnEnabled,
-          nnBlend: s.nnBlend,
         },
         (info) => {
           if (genRef.current !== gen) return;
@@ -372,11 +332,8 @@ export function useGame(s: Settings) {
     s.engineDepth,
     s.engineTime,
     s.humanStyle,
-    s.nnEnabled,
-    s.nnBlend,
     s.useScan,
     draw,
-    nnMeta,
   ]);
 
   /* ---------- автосохранение ---------- */
@@ -724,92 +681,6 @@ export function useGame(s: Settings) {
     [refreshDb],
   );
 
-  /* ---------- обучение нейросети ---------- */
-  const cancelTraining = useCallback(() => {
-    trainWorker.current?.terminate();
-    trainWorker.current = null;
-    trainFinish.current?.({ ok: false, error: 'Обучение отменено' });
-    trainFinish.current = null;
-    setTraining(false);
-    setTrainProg(null);
-  }, []);
-  useEffect(
-    () => () => {
-      trainWorker.current?.terminate();
-      trainFinish.current?.({ ok: false, error: 'Обучение отменено' });
-    },
-    [],
-  );
-  const trainOnPDN = useCallback(
-    (text: string): Promise<TrainResult> => {
-      cancelTraining();
-      return new Promise((resolve) => {
-        trainFinish.current = resolve;
-        const finish = (result: TrainResult) => {
-          trainWorker.current?.terminate();
-          trainWorker.current = null;
-          trainFinish.current = null;
-          setTraining(false);
-          setTrainProg(null);
-          resolve(result);
-        };
-        try {
-          const worker = new Worker(new URL('../engine/train.worker.ts', import.meta.url), {
-            type: 'module',
-          });
-          trainWorker.current = worker;
-          setTraining(true);
-          worker.onerror = () => {
-            if (trainWorker.current === worker)
-              finish({ ok: false, error: 'Ошибка потока обучения' });
-          };
-          worker.onmessage = (event) => {
-            const d = event.data;
-            if (d.t === 'progress') {
-              setTrainProg(d.progress);
-              return;
-            }
-            if (d.t === 'error') {
-              finish({ ok: false, error: d.error });
-              return;
-            }
-            if (d.t === 'done') {
-              let saved = true;
-              try {
-                localStorage.setItem(NET_KEY, JSON.stringify({ json: d.json, meta: d.meta }));
-              } catch {
-                saved = false;
-              }
-              setNnMeta(d.meta);
-              engine.setNet(d.json);
-              finish({
-                ok: true,
-                games: d.meta.games,
-                positions: d.meta.positions,
-                loss: d.meta.loss,
-              });
-              if (!saved) flashHint('Сеть активна, но не сохранена: недостаточно места');
-            }
-          };
-          worker.postMessage({ text });
-        } catch {
-          finish({ ok: false, error: 'Web Worker для обучения недоступен' });
-        }
-      });
-    },
-    [cancelTraining, flashHint],
-  );
-  const clearNet = useCallback(() => {
-    cancelTraining();
-    try {
-      localStorage.removeItem(NET_KEY);
-    } catch {
-      /* noop */
-    }
-    setNnMeta(null);
-    engine.setNet(null);
-  }, [cancelTraining]);
-
   return {
     start,
     root,
@@ -864,12 +735,6 @@ export function useGame(s: Settings) {
     saveToDb,
     loadFromDb,
     deleteFromDb,
-    nnMeta,
-    training,
-    trainProg,
-    trainOnPDN,
-    clearNet,
-    cancelTraining,
     movesTotal: mainlineLength(root),
   };
 }

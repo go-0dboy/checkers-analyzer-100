@@ -2,7 +2,7 @@
  * СтоКлетка — инструмент разбора международных шашек (100 клеток,
  * ФМЖД). Дерево ходов с ветвлениями, комментарии и оценки ходов
  * (PDN 3.0), база партий в IndexedDB, расстановка позиций и FEN,
- * анализ (Scan WASM → встроенный движок), обучаемая нейросеть.
+ * анализ (Scan WASM → встроенный движок).
  * Mobile-first: нижняя навигация, крупные зоны касания.
  * ============================================================ */
 
@@ -234,14 +234,7 @@ function SettingsPanel({ s, set, game, onClose }: {
           <SliderRow label="Время на ход" value={s.engineTime} min={500} max={5000} step={250}
             fmt={(v) => `${(v / 1000).toFixed(1)} с`} onChange={(v) => set({ engineTime: v })} />
         </div>
-        <div className="pt-2">
-          <div className="mb-1 font-display text-[9px] font-bold tracking-[.22em] text-dim">НЕЙРОСЕТЬ</div>
-          <Toggle on={s.nnEnabled} onChange={(v) => set({ nnEnabled: v })} label="Использовать нейросеть" hint="смешивать оценку NNUE с альфа-бета (вкладка «Сеть»)" />
-          {s.nnEnabled && (
-            <SliderRow label="Вес нейросети" value={Math.round(s.nnBlend * 100)} min={0} max={80} step={5}
-              fmt={(v) => `${v}%`} onChange={(v) => set({ nnBlend: v / 100 })} />
-          )}
-        </div>
+
       </div>
     </div>
   );
@@ -560,9 +553,9 @@ function TbBlock({ tb, b }: { tb: NonNullable<GameApi['tb']>; b: Int8Array }) {
 }
 
 function AnalysisPanel({
-  game, s, onPlay, onHover,
+  game, onPlay, onHover,
 }: {
-  game: GameApi; s: Settings;
+  game: GameApi;
   onPlay: (from: number, to: number, move?: Move) => void;
   onHover: (c: CandidateLite | null) => void;
 }) {
@@ -696,9 +689,7 @@ function AnalysisPanel({
         </div>
       )}
 
-      {s.nnEnabled && game.nnMeta && !thinking && !isScan && (
-        <div className="mt-2 text-right text-[9px] text-dim">нейросеть в оценке поиска (вес {Math.round(s.nnBlend * 100)}%)</div>
-      )}
+
     </section>
   );
 }
@@ -1181,128 +1172,15 @@ function showMini(v: number): ReactNode {
   );
 }
 
-/* ================= нейросеть ================= */
-
-function NetTab({ game }: { game: GameApi }) {
-  const { nnMeta, training, trainProg, trainOnPDN, clearNet, cancelTraining, engineKind, scanAvail } = game;
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
-
-  const run = async (text: string) => {
-    setMsg(null);
-    const res = await trainOnPDN(text);
-    if (res.ok) {
-      setMsg({ kind: 'ok', text: `Обучено: ${res.games} парт., ${res.positions} поз., val-loss ${res.loss?.toFixed(4)}. Сеть активна.` });
-    } else {
-      setMsg({ kind: 'err', text: res.error ?? 'Ошибка обучения' });
-    }
-  };
-
-  return (
-    <section className="panel flex flex-col p-3.5 sm:p-4">
-      <header className="mb-2 flex items-center justify-between gap-2">
-        <h2 className="font-display text-[10px] font-bold tracking-[.22em] text-mut">НЕЙРОСЕТЬ · ЭКСПЕРИМЕНТ</h2>
-        <span className="chip">{nnMeta ? 'обучена' : 'нет весов'}</span>
-      </header>
-
-      <p className="text-[11px] leading-relaxed text-mut">
-        Экспериментальное обучение на исходах партий. Улучшение игровой силы не подтверждено.
-        Нужны минимум три разные корректные партии с результатом; по каждой извлекаются
-        позиции с исходом (1-0 / 0-1 / 1-1).
-      </p>
-
-      <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
-        <span className="chip">201 → 64 → 1 · ReLU/σ</span>
-        <span className="chip">Adam · ранняя остановка</span>
-        <span className="chip">аугментация rot180</span>
-        <span className="chip">сплит по партиям: train / val / test</span>
-      </div>
-
-      {msg && (
-        <div className={`mt-2 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
-          msg.kind === 'ok' ? 'border-[#5fb287]/40 bg-[#5fb287]/10 text-[#8ed0ae]' : 'border-[#d9534a]/40 bg-[#d9534a]/10 text-[#e5938b]'}`}>
-          {msg.kind === 'ok' ? <ICheck size={14} /> : <IWarn size={14} />}
-          {msg.text}
-        </div>
-      )}
-
-      <input
-        ref={fileRef} type="file" accept=".pdn,.txt,text/plain" className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (!f) return;
-          const rd = new FileReader();
-          rd.onload = () => void run(String(rd.result ?? ''));
-          rd.readAsText(f);
-        }}
-      />
-      <button
-        type="button"
-        onClick={() => fileRef.current?.click()}
-        disabled={training}
-        className="mt-3 flex w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-acc/40 bg-acc/[.06] px-4 py-5 text-center transition-all duration-150 hover:border-acc/80 hover:bg-acc/12 active:scale-[.98] disabled:opacity-40"
-      >
-        <ILoad size={22} className="text-acc2" />
-        <span className="text-xs font-semibold text-acc2">Загрузить файл PDN с партиями</span>
-        <span className="text-[10px] text-dim">мульти-партийный PDN 3.0 · .pdn / .txt</span>
-      </button>
-
-      {training && <button type="button" className="mt-2 text-xs text-mut" onClick={cancelTraining}>Остановить обучение</button>}
-      {training && trainProg && (
-        <div className="mt-3">
-          <div className="flex items-center justify-between text-[11px] text-mut">
-            <span>эпоха {trainProg.epoch}{trainProg.stopped ? ' · ранняя остановка' : ''}</span>
-            <span className="font-mono">train {trainProg.loss.toFixed(4)} · val {trainProg.valLoss.toFixed(4)}</span>
-          </div>
-          <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-white/8">
-            <div className="shimmer h-full w-full rounded-full" />
-          </div>
-        </div>
-      )}
-
-      {nnMeta && (
-        <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
-          <span className="chip">обучена: {nnMeta.games} парт. / {nnMeta.positions} поз.</span>
-          <span className="chip">val-loss {nnMeta.loss.toFixed(3)}</span>
-          {nnMeta.testLoss !== undefined && <span className="chip">test-loss {nnMeta.testLoss.toFixed(3)}</span>}
-          <span className="chip">{nnMeta.date}</span>
-        </div>
-      )}
-
-      {nnMeta && !training && (
-        <button
-          type="button" onClick={clearNet}
-          className="mt-3 inline-flex items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-white/[.04] px-3 py-2 text-xs font-semibold text-mut transition-all duration-150 hover:border-[#d9534a]/50 hover:bg-[#d9534a]/10 hover:text-[#e5938b] active:scale-[.97]"
-        >
-          <ITrash size={14} />Удалить сеть
-        </button>
-      )}
-
-      <div className="mt-3 rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-[10px] leading-relaxed text-dim">
-        <span className="font-semibold text-mut">Активный движок: </span>
-        {engineKind === 'scan'
-          ? 'Scan 3.1 (WASM), pattern-оценка.'
-          : scanAvail
-            ? 'встроенный α-β (Scan отключён в настройках).'
-            : 'встроенный α-β + MultiPV. Scan WASM появится, если положить scan.js/scan.wasm в public/scan/.'}
-        <span className="mt-1 block">
-          Сеть участвует в оценке внутри поиска (вес — в настройках) и хранится локально; работает офлайн.
-        </span>
-      </div>
-    </section>
-  );
-}
-
 /* ================= приложение ================= */
 
-type Tab = 'analysis' | 'moves' | 'db' | 'setup' | 'net';
+type Tab = 'analysis' | 'moves' | 'db' | 'setup';
 
 const TABS: { id: Tab; label: string; icon: (p: IP) => ReactNode }[] = [
   { id: 'analysis', label: 'Анализ', icon: (p) => <IChipIc {...p} /> },
   { id: 'moves', label: 'Ходы', icon: (p) => <IList {...p} /> },
   { id: 'db', label: 'База', icon: (p) => <IDb {...p} /> },
   { id: 'setup', label: 'Доска', icon: (p) => <IGrid {...p} /> },
-  { id: 'net', label: 'Сеть', icon: (p) => <IBolt {...p} /> },
 ];
 
 function Logo() {
@@ -1387,7 +1265,6 @@ export default function App() {
             <span className="font-mono text-[11px] text-mut">
               {engineLabel}
               {g.engine.thinking ? ` · d${g.engine.depth || 1}…` : g.engine.depth ? ` · d${g.engine.depth}` : ''}
-              {s.nnEnabled && g.nnMeta ? ' · NN' : ''}
             </span>
           </div>
           <div className="relative ml-auto md:ml-0">
@@ -1455,7 +1332,7 @@ export default function App() {
 
         {/* правая колонка (desktop) / под доской (mobile) */}
         <div className="flex min-w-0 flex-col gap-3.5">
-          <nav className="nav-side hidden grid-cols-5 rounded-xl border border-white/10 bg-white/[.03] p-1 min-[880px]:grid">
+          <nav className="nav-side hidden grid-cols-4 rounded-xl border border-white/10 bg-white/[.03] p-1 min-[880px]:grid">
             {TABS.map((t) => (
               <button key={t.id} type="button" onClick={() => setTab(t.id)}
                 className={`rounded-lg px-1 py-2.5 text-[11px] font-semibold transition-all duration-150 active:scale-[.97] ${
@@ -1469,19 +1346,18 @@ export default function App() {
 
           <div key={tab} className="reveal flex min-w-0 flex-col gap-3.5">
             {tab === 'analysis' && (
-              <AnalysisPanel game={g} s={s} onPlay={(f, t, m) => g.playFromTo(f, t, m)} onHover={handleHover} />
+              <AnalysisPanel game={g} onPlay={(f, t, m) => g.playFromTo(f, t, m)} onHover={handleHover} />
             )}
             {tab === 'moves' && <MovesTab game={g} />}
             {tab === 'db' && <DbTab game={g} />}
             {tab === 'setup' && <SetupTab game={g} />}
-            {tab === 'net' && <NetTab game={g} />}
           </div>
         </div>
       </main>
 
       {/* нижняя навигация (mobile) */}
       <nav className="nav-mobile fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-pan/92 pb-[env(safe-area-inset-bottom)] backdrop-blur-md min-[880px]:hidden">
-        <div className="mx-auto grid max-w-[560px] grid-cols-5">
+        <div className="mx-auto grid max-w-[560px] grid-cols-4">
           {TABS.map((t) => (
             <button key={t.id} type="button" onClick={() => setTab(t.id)}
               className={`flex flex-col items-center gap-0.5 py-2 transition-colors duration-150 ${

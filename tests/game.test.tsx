@@ -4,7 +4,7 @@ import { renderHook, act, cleanup } from '@testing-library/react';
 import { useGame } from '../src/state/useGame';
 import { DEFAULT_SETTINGS } from '../src/state/settings';
 const mocks = vi.hoisted(() => ({ cancel: vi.fn(), analyze: vi.fn() }));
-vi.mock('../src/engine/client', () => ({ engine: { setNet: vi.fn(), analyze: mocks.analyze } }));
+vi.mock('../src/engine/client', () => ({ engine: { analyze: mocks.analyze } }));
 vi.mock('../src/engine/scan', () => ({ getScan: () => Promise.resolve(null) }));
 vi.mock('../src/state/db', () => ({
   listGames: () => Promise.resolve([]),

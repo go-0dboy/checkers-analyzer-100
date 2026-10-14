@@ -1,4 +1,4 @@
-/* Настройки приложения: стрелки, авто-взятие, авто-ход, движок, нейросеть. */
+/* Настройки приложения: стрелки, авто-взятие, авто-ход, движок. */
 
 export interface Settings {
   showArrows: boolean;
@@ -11,10 +11,6 @@ export interface Settings {
   engineTime: number;
   /** «человеческий» стиль: среди равных ходов выбирать типичный */
   humanStyle: boolean;
-  /** использовать обученную нейросеть в оценке */
-  nnEnabled: boolean;
-  /** вес нейросети в смешанной оценке, 0..1 */
-  nnBlend: number;
   /** приоритет Scan 3.1 WASM, если бинарник подключён */
   useScan: boolean;
 }
@@ -27,8 +23,6 @@ export const DEFAULT_SETTINGS: Settings = {
   engineDepth: 9,
   engineTime: 1300,
   humanStyle: false,
-  nnEnabled: false,
-  nnBlend: 0.35,
   useScan: true,
 };
 
@@ -45,7 +39,6 @@ export function loadSettings(): Settings {
         'autoCapture',
         'autoSingle',
         'humanStyle',
-        'nnEnabled',
         'useScan',
       ] as const)
         if (typeof d[key] === 'boolean') out[key] = d[key]!;
@@ -53,7 +46,6 @@ export function loadSettings(): Settings {
         ['captureDelay', 100, 5000],
         ['engineDepth', 1, 40],
         ['engineTime', 100, 60000],
-        ['nnBlend', 0, 0.8],
       ] as const)
         if (Number.isFinite(d[key])) out[key] = Math.min(max, Math.max(min, d[key]!));
       out.engineDepth = Math.floor(out.engineDepth);

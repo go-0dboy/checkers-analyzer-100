@@ -68,7 +68,8 @@ function collectMan(
   path: number[],
   out: Move[],
 ): void {
-  const [r, c] = rc(cur);
+  const r = ROW_OF[cur],
+    c = COL_OF[cur];
   let any = false;
   for (const [dr, dc] of DIRS) {
     const r1 = r + dr;
@@ -108,7 +109,8 @@ function collectKing(
   path: number[],
   out: Move[],
 ): void {
-  const [r, c] = rc(cur);
+  const r = ROW_OF[cur],
+    c = COL_OF[cur];
   let any = false;
   for (const [dr, dc] of DIRS) {
     let r1 = r + dr;
@@ -149,7 +151,8 @@ function collectKing(
 
 /** Тихие ходы, когда взятий нет. */
 function genQuiet(b: Int8Array, from: number, side: Side, out: Move[]): void {
-  const [r, c] = rc(from);
+  const r = ROW_OF[from],
+    c = COL_OF[from];
   const v = b[from];
   if (v === side) {
     const fwd = side === WHITE ? -1 : 1;
@@ -179,13 +182,16 @@ export function generateMoves(pos: Pos): Move[] {
   const caps: Move[] = [];
   const { side } = pos;
   const b = pos.b.slice();
+  const captured = new Set<number>();
+  const path = [0];
   for (let n = 1; n <= 50; n++) {
     const v = b[n];
     if (v === 0 || v * side < 0) continue;
     // The moving piece vacates its origin; captured pieces remain blockers.
     b[n] = 0;
-    if (v === side) collectMan(b, n, side, new Set(), [n], caps);
-    else collectKing(b, n, side, new Set(), [n], caps);
+    path[0] = n;
+    if (v === side) collectMan(b, n, side, captured, path, caps);
+    else collectKing(b, n, side, captured, path, caps);
     b[n] = v;
   }
   if (caps.length > 0) {
