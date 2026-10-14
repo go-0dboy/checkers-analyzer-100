@@ -36,6 +36,7 @@ npm run typecheck
 npm test
 node scripts/apply-icons.mjs
 npm run build
+node scripts/verify-release.mjs
 [ -d android ] || node_modules/.bin/cap add android
 node_modules/.bin/cap sync android
 node scripts/apply-icons.mjs

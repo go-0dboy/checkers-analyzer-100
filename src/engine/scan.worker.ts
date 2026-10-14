@@ -1,4 +1,4 @@
-import { applyMove, parseFen, type Move } from './core';
+import { applyMove, findMove, generateMoves, parseFen, type Move } from './core';
 import { hubPosition, hubMove, hubPairs, parseHubMove, parseHubPV } from './scan-protocol';
 interface ScanModule {
   ccall: (name: string, result: string | null, types: string[], args: string[]) => void;
@@ -77,12 +77,25 @@ scope.onmessage = async (event: MessageEvent) => {
       request = { id: d.id, pos, depth: 0, scoreWhite: null, pv: [] };
       let current = start;
       const history = (d.history as Move[]).map((move) => {
-        const text = hubMove(move);
-        current = applyMove(current, move);
+        const legal = findMove(
+          generateMoves(current),
+          move.from,
+          move.to,
+          move.path,
+          move.captures,
+        );
+        if (!legal) throw new Error('Нелегальный ход в истории');
+        const text = hubMove(legal);
+        current = applyMove(current, legal);
         return text;
       });
+      if (current.side !== pos.side || current.b.join(',') !== pos.b.join(','))
+        throw new Error('История не соответствует позиции');
       send(`pos pos=${hubPosition(start)}${history.length ? ` moves="${history.join(' ')}"` : ''}`);
-      send(`level move-time=${Math.max(0.1, d.timeMs / 1000)} depth=40`);
+      const depth = Number.isFinite(d.maxDepth)
+        ? Math.max(1, Math.min(40, Math.floor(d.maxDepth)))
+        : 40;
+      send(`level move-time=${Math.max(0.1, d.timeMs / 1000)} depth=${depth}`);
       send('go think');
     }
   } catch (error) {

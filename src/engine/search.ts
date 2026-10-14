@@ -193,20 +193,10 @@ interface SearchState {
   nodes: number;
   deadline: number;
   token: { cancelled: boolean };
-  evaluate: (pos: Pos) => number;
-}
-const hashPieces = new BigUint64Array(51 * 5);
-let seed = 0xdeadbeefcafebaben;
-for (let i = 0; i < hashPieces.length; i++) {
-  seed = BigInt.asUintN(64, seed ^ (seed << 13n));
-  seed = BigInt.asUintN(64, seed ^ (seed >> 7n));
-  seed = BigInt.asUintN(64, seed ^ (seed << 17n));
-  hashPieces[i] = seed;
 }
 function key(pos: Pos, draw: DrawState): string {
-  let hash = pos.side === 1 ? 0n : 0x123456789abcdef0n;
-  for (let n = 1; n <= 50; n++) if (pos.b[n]) hash ^= hashPieces[n * 5 + pos.b[n] + 2];
-  return `${hash.toString(16)}:${drawKey(draw)}`;
+  // Exact board identity avoids BigInt work and probabilistic hash collisions.
+  return `${pos.side}:${pos.b.join(',')}:${drawKey(draw)}`;
 }
 function check(st: SearchState): void {
   st.nodes++;
@@ -218,13 +208,12 @@ const toTT = (score: number, ply: number) =>
 const fromTT = (score: number, ply: number) =>
   Math.abs(score) > MATE - 1000 ? score - Math.sign(score) * ply : score;
 function ordered(moves: Move[], best: string | undefined): Move[] {
-  return moves
-    .slice()
-    .sort(
-      (a, b) =>
-        (moveKey(b) === best ? 1 : 0) - (moveKey(a) === best ? 1 : 0) ||
-        b.captures.length - a.captures.length,
-    );
+  // All legal captures already have the same length under the majority rule.
+  // Keep the stable generator order and move only the TT recommendation first.
+  if (!best) return moves;
+  const index = moves.findIndex((move) => moveKey(move) === best);
+  if (index <= 0) return moves;
+  return [moves[index], ...moves.slice(0, index), ...moves.slice(index + 1)];
 }
 function quiescence(
   pos: Pos,
@@ -233,14 +222,15 @@ function quiescence(
   ply: number,
   draw: DrawState,
   st: SearchState,
+  knownMoves?: Move[],
 ): number {
   check(st);
-  const moves = generateMoves(pos);
+  const moves = knownMoves ?? generateMoves(pos);
   if (!moves.length) return -MATE + ply;
   if (drawReason(pos, draw)) return 0;
   // No stand-pat is legal when capture is compulsory. Every capture reduces material,
   // so this recursion terminates without an arbitrary absolute-ply cutoff.
-  if (!moves[0].captures.length) return pos.side * st.evaluate(pos);
+  if (!moves[0].captures.length) return pos.side * evaluate(pos.b);
   let best = -Infinity;
   for (const move of moves) {
     const child = applyMove(pos, move);
@@ -271,10 +261,8 @@ function negamax(
   const moves = generateMoves(pos);
   if (!moves.length) return -MATE + ply;
   if (drawReason(pos, draw)) return 0;
-  if (depth <= 0) return quiescence(pos, alpha, beta, ply, draw, st);
-  const originalAlpha = alpha,
-    originalBeta = beta,
-    k = key(pos, draw),
+  if (depth <= 0) return quiescence(pos, alpha, beta, ply, draw, st, moves);
+  const k = key(pos, draw),
     entry = tt.get(k);
   if (entry && entry.depth >= depth) {
     const score = fromTT(entry.score, ply);
@@ -283,6 +271,8 @@ function negamax(
     else beta = Math.min(beta, score);
     if (alpha >= beta) return score;
   }
+  const originalAlpha = alpha,
+    originalBeta = beta;
   let best = -Infinity,
     bestMove = '';
   for (const move of ordered(moves, entry?.best)) {
@@ -333,7 +323,6 @@ export async function analyze(
     maxDepth: number;
     humanStyle?: boolean;
     draw?: DrawState;
-    evaluate?: (pos: Pos) => number;
   },
   onProgress: (p: EngineProgress) => void,
   token: { cancelled: boolean },
@@ -363,12 +352,11 @@ export async function analyze(
     nodes: 0,
     deadline: performance.now() + Math.max(1, Math.min(60000, opts.timeMs)),
     token,
-    evaluate: opts.evaluate ?? ((p) => evaluate(p.b)),
   };
   // A legal fallback exists even if the first iteration times out.
   out.best = legal[0];
   out.pv = [legal[0]];
-  out.score = pos.side * st.evaluate(pos);
+  out.score = pos.side * evaluate(pos.b);
   let previous: Candidate[] = [];
   const maxDepth = Math.max(1, Math.min(40, Math.floor(opts.maxDepth)));
   for (let depth = 1; depth <= maxDepth; depth++) {
@@ -376,13 +364,10 @@ export async function analyze(
     if (token.cancelled || performance.now() >= st.deadline) break;
     const results: Candidate[] = [];
     try {
-      const moves = legal
-        .slice()
-        .sort(
-          (a, b) =>
-            (previous.find((c) => moveKey(c.move) === moveKey(b))?.score ?? -Infinity) -
-            (previous.find((c) => moveKey(c.move) === moveKey(a))?.score ?? -Infinity),
-        );
+      const scores = new Map(previous.map((c) => [c.move, c.score]));
+      const moves = previous.length
+        ? legal.slice().sort((a, b) => scores.get(b)! - scores.get(a)!)
+        : legal;
       // Independent full windows give exact scores for every displayed candidate.
       for (const move of moves) {
         if (token.cancelled || performance.now() >= st.deadline) throw TIMEOUT;

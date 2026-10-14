@@ -14,6 +14,7 @@ export interface ScanEngine {
     signal?: AbortSignal,
     history?: Move[],
     startFen?: string,
+    maxDepth?: number,
   ): Promise<ScanBest | null>;
 }
 let promise: Promise<ScanEngine | null> | null = null;
@@ -74,7 +75,9 @@ export class ScanSession implements ScanEngine {
           const pending = this.pending;
           if (d.t === 'done' && pending && pending.id === d.id) pending.finish(d.result);
         };
-        worker.onerror = () => this.dispose();
+        worker.onerror = () => {
+          if (this.worker === worker) this.dispose();
+        };
         worker.postMessage({ t: 'boot', url: this.url, eval: this.evalMode });
       } catch {
         this.dispose();
@@ -88,6 +91,7 @@ export class ScanSession implements ScanEngine {
     signal?: AbortSignal,
     history: Move[] = [],
     startFen = fen,
+    maxDepth = 40,
   ): Promise<ScanBest | null> {
     if (signal?.aborted) return null;
     if (this.pending) this.dispose();
@@ -108,7 +112,11 @@ export class ScanSession implements ScanEngine {
       };
       this.pending = { id, finish };
       signal?.addEventListener('abort', abort, { once: true });
-      this.worker!.postMessage({ t: 'go', id, fen, startFen, history, timeMs });
+      try {
+        this.worker!.postMessage({ t: 'go', id, fen, startFen, history, timeMs, maxDepth });
+      } catch {
+        this.dispose();
+      }
     });
   }
   dispose(): void {

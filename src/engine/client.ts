@@ -13,8 +13,6 @@ export interface AnalyzeReq {
   timeMs: number;
   maxDepth: number;
   humanStyle?: boolean;
-  nnEnabled?: boolean;
-  nnBlend?: number;
 }
 export interface AnalyzeHandle {
   promise: Promise<EngineResult | null>;
@@ -24,7 +22,6 @@ export class EngineClient {
   private worker: Worker | null = null;
   private directMod: typeof import('./impl') | null = null;
   private seq = 0;
-  private netJson: string | null = null;
   private pending = new Map<
     number,
     {
@@ -49,15 +46,9 @@ export class EngineClient {
         this.worker = null;
         this.finishAll();
       };
-      this.worker.postMessage({ t: 'loadNet', net: this.netJson });
     } catch {
       this.worker = null;
     }
-  }
-  setNet(json: string | null): void {
-    this.netJson = json;
-    if (this.worker) this.worker.postMessage({ t: 'loadNet', net: json });
-    else this.directMod?.loadNetDirect(json);
   }
   private finish(id: number, result: EngineResult | null): void {
     const pending = this.pending.get(id);
@@ -99,7 +90,6 @@ export class EngineClient {
         try {
           this.directMod ??= await import('./impl');
           if (!this.pending.has(id)) return;
-          this.directMod.loadNetDirect(this.netJson);
           this.directMod.runDirect(msg, (message) =>
             this.route(message as { t: string; id: number }),
           );

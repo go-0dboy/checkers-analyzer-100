@@ -83,3 +83,17 @@ it('absence of legal moves takes priority over draw clocks', async () => {
   expect(result.score).toBe(-1000000);
   expect(result.mate).toBe(true);
 });
+
+it('warm transposition bounds agree with a fresh complete search', async () => {
+  const fen = 'W:W31,32,33:B18,19,20';
+  await search(fen, 3);
+  const warm = await search(fen, 4);
+  clearSearch();
+  const cold = await search(fen, 4);
+  const signature = (r: typeof cold) => ({
+    best: moveKey(r.best!),
+    score: r.score,
+    candidates: r.candidates.map((c) => [moveKey(c.move), c.score]),
+  });
+  expect(signature(warm)).toEqual(signature(cold));
+});

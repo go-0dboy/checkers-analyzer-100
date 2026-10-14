@@ -60,3 +60,26 @@ test('Scan abort settles and a subsequent analysis still works', async ({ page }
   expect(result!.cancelled).toBeNull();
   expect(result!.next.move.captures).toEqual([28]);
 });
+
+test('release omits neural UI and Scan validates history and honours depth', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('sk100.settings.v2', JSON.stringify({ useScan: false, nnEnabled: true }));
+    localStorage.setItem('sk100.net.v3', '{corrupt obsolete weights');
+  });
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Сеть', exact: true })).toHaveCount(0);
+  await expect(page.getByText('Использовать нейросеть', { exact: true })).toHaveCount(0);
+  const result = await page.evaluate(async () => {
+    // @ts-expect-error Vite runtime module
+    const { getScan } = await import('/src/engine/scan.ts');
+    const scan = await getScan();
+    if (!scan) return null;
+    const invalid = await scan.analyze('W:WK23:BK28', 100, undefined, [], 'W:W31-50:B1-20');
+    const limited = await scan.analyze('W:W31-50:B1-20', 1000, undefined, [], 'W:W31-50:B1-20', 2);
+    return { invalid, limited };
+  });
+  expect(result).not.toBeNull();
+  expect(result!.invalid).toBeNull();
+  expect(result!.limited.depth).toBeGreaterThan(0);
+  expect(result!.limited.depth).toBeLessThanOrEqual(2);
+});
